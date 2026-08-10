@@ -19,15 +19,16 @@ import { quoteService } from '../../services/quoteService';
 import FormModal from '../../components/modals/FormModal';
 import { FormField, SelectField } from '../../components/forms/FormFields';
 import { staggerContainer, staggerItem, slideInBottom } from '../../utils/motionVariants';
+import Toast from '../../components/common/Toast';
 
 // Recharts Analytics Data Structure (Rendered dynamically when real API data returns)
 
 const SECTIONS = [
   { id: 'Quotes', label: 'Quotes', icon: FileText, color: 'text-cyan-400', border: 'border-cyan-500/30', bg: 'bg-cyan-500/10' },
   { id: 'Completed Quotes', label: 'Completed Quotes', icon: CheckCircle2, color: 'text-emerald-400', border: 'border-emerald-500/30', bg: 'bg-emerald-500/10' },
+  { id: 'Jobs Waiting Booking', label: 'Jobs Waiting Booking', icon: Clock, color: 'text-amber-400', border: 'border-amber-500/30', bg: 'bg-amber-500/10' },
   { id: 'Jobs', label: 'Jobs', icon: Wrench, color: 'text-blue-400', border: 'border-blue-500/30', bg: 'bg-blue-500/10' },
   { id: 'Completed Jobs', label: 'Completed Jobs', icon: CheckCircle2, color: 'text-purple-400', border: 'border-purple-500/30', bg: 'bg-purple-500/10' },
-  { id: 'Jobs Waiting Booking', label: 'Jobs Waiting Booking', icon: Clock, color: 'text-amber-400', border: 'border-amber-500/30', bg: 'bg-amber-500/10' },
 ];
 
 export default function MaintenanceDashboardPage() {
@@ -40,6 +41,7 @@ export default function MaintenanceDashboardPage() {
   const [selectedJob, setSelectedJob] = useState(null);
   const [copiedToken, setCopiedToken] = useState(null);
   const [mobileSectionTab, setMobileSectionTab] = useState('Quotes');
+  const [toast, setToast] = useState(null);
 
   // Load API Data
   useEffect(() => {
@@ -155,9 +157,11 @@ export default function MaintenanceDashboardPage() {
       navigator.clipboard.writeText(url);
       setCopiedToken(token);
       setTimeout(() => setCopiedToken(null), 2500);
-      alert(`Booking Link copied to clipboard!\n\n${url}`);
+      setToast({ message: '✓ Booking link successfully generated and copied to clipboard!', type: 'success' });
+      setTimeout(() => setToast(null), 3000);
     } catch (err) {
-      alert(err.message || 'Failed to generate booking link');
+      setToast({ message: err.message || 'Failed to generate booking link', type: 'error' });
+      setTimeout(() => setToast(null), 3000);
     }
   };
 
@@ -805,9 +809,11 @@ export default function MaintenanceDashboardPage() {
                     const token = linkRes.data?.secureToken || selectedJob.secureToken;
                     const url = `${window.location.origin}/quote-upload/${token}`;
                     navigator.clipboard.writeText(url);
-                    alert(`Request link generated and copied to clipboard!\n\n${url}`);
+                    setToast({ message: '✓ Request link successfully generated and copied to clipboard!', type: 'success' });
+                    setTimeout(() => setToast(null), 3000);
                   } catch (err) {
-                    alert(err.message || 'Failed to generate link.');
+                    setToast({ message: err.message || 'Failed to generate link.', type: 'error' });
+                    setTimeout(() => setToast(null), 3000);
                   }
                 }}
                 className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs font-bold text-purple-900 bg-purple-100 hover:bg-purple-200 border border-purple-300 transition-all cursor-pointer flex items-center justify-center gap-1.5"
@@ -819,7 +825,8 @@ export default function MaintenanceDashboardPage() {
                 type="button"
                 onClick={async () => {
                   await handleSectionChange(selectedJob.id, 'Completed Quotes');
-                  alert(`Job quote marked as sent! Moved to "Completed Quotes".`);
+                  setToast({ message: '✓ Job quote marked as sent! Moved to "Completed Quotes".', type: 'success' });
+                  setTimeout(() => setToast(null), 3000);
                   setSelectedJob(null);
                 }}
                 className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-emerald-600 to-teal-500 shadow-lg hover:brightness-110 transition-all cursor-pointer flex items-center justify-center gap-1.5"
@@ -832,7 +839,15 @@ export default function MaintenanceDashboardPage() {
         )}
       </FormModal>
 
-
+      <AnimatePresence>
+        {toast && (
+          <Toast
+            message={toast.message}
+            type={toast.type}
+            onClose={() => setToast(null)}
+          />
+        )}
+      </AnimatePresence>
 
     </div>
   );

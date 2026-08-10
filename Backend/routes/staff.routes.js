@@ -32,9 +32,9 @@ router.put('/jobs/:id/complete', markJobComplete);
 router.get('/', getStaff);
 router.get('/:id', getStaffById);
 
-// Write / Management Endpoints (Strictly Office Admin Only)
-router.post('/', authorizeRoles('OFFICE_ADMIN'), createStaff);
-router.put('/:id', authorizeRoles('OFFICE_ADMIN'), updateStaff);
+// Write / Management Endpoints
+router.post('/', authorizeRoles('OFFICE_ADMIN'), photoUpload.single('avatar'), createStaff);
+router.put('/:id', photoUpload.single('avatar'), updateStaff);
 router.delete('/:id', authorizeRoles('OFFICE_ADMIN'), deleteStaff);
 
 module.exports = router;

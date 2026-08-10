@@ -423,13 +423,17 @@ const generatePublicRequestLink = async (req, res, next) => {
 
     if (linkType === 'QUOTE_UPLOAD') {
       await pool.query(
-        'INSERT INTO quote_requests (work_order_id, secure_token, status, expires_at) VALUES (?, ?, ?, ?)',
-        [id, secureToken, 'PENDING', expiresAt]
+        `INSERT INTO quote_requests (work_order_id, secure_token, status, expires_at) 
+         VALUES (?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE secure_token = ?, status = ?, expires_at = ?`,
+        [id, secureToken, 'PENDING', expiresAt, secureToken, 'PENDING', expiresAt]
       );
     } else {
       await pool.query(
-        'INSERT INTO booking_requests (work_order_id, secure_token, status, expires_at) VALUES (?, ?, ?, ?)',
-        [id, secureToken, 'PENDING', expiresAt]
+        `INSERT INTO booking_requests (work_order_id, secure_token, status, expires_at) 
+         VALUES (?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE secure_token = ?, status = ?, expires_at = ?`,
+        [id, secureToken, 'PENDING', expiresAt, secureToken, 'PENDING', expiresAt]
       );
     }
 

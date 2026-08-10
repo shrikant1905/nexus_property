@@ -19,6 +19,7 @@ export default function MaintenanceStaffPage() {
   const [error, setError] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [editingStaff, setEditingStaff] = useState(null);
+  const [avatarFile, setAvatarFile] = useState(null);
 
   const [form, setForm] = useState({
     name: '',

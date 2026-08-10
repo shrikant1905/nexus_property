@@ -28,10 +28,14 @@ export default function Header({ onToggleSidebar, collapsed }) {
   useEffect(() => {
     if (user) {
       fetchNotifications();
-      const interval = setInterval(fetchNotifications, 10000);
-      return () => clearInterval(interval);
     }
   }, [user]);
+
+  useEffect(() => {
+    if (user && notifOpen) {
+      fetchNotifications();
+    }
+  }, [notifOpen, user]);
 
   const handleMarkRead = async (id, actionUrl) => {
     try {
@@ -204,6 +208,19 @@ export default function Header({ onToggleSidebar, collapsed }) {
                       );
                     })
                   )}
+                </div>
+
+                <div className="p-2.5 border-t border-slate-100 bg-slate-50/50 text-center">
+                  <button
+                    onClick={() => {
+                      setNotifOpen(false);
+                      const baseRoute = isTech ? '/maintenance' : '/admin';
+                      navigate(`${baseRoute}/notifications`);
+                    }}
+                    className="text-xs font-bold text-[#00204a] hover:text-[#001738] hover:underline cursor-pointer"
+                  >
+                    View All Notifications
+                  </button>
                 </div>
               </motion.div>
             )}

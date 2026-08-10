@@ -12,6 +12,7 @@ const getStaff = async (req, res, next) => {
       SELECT 
         u.id as user_id,
         u.email,
+        u.avatar_url,
         u.full_name as name,
         u.phone,
         u.role,
@@ -52,6 +53,7 @@ const getStaff = async (req, res, next) => {
       staffCode: r.staff_code || `STF-${100 + r.user_id}`,
       name: r.name,
       email: r.email,
+      avatarUrl: r.avatar_url || '',
       phone: r.phone || '',
       role: r.role_title || 'Maintenance Specialist',
       color: r.color_hex || '#009bf2',
@@ -87,7 +89,7 @@ const getStaffById = async (req, res, next) => {
 
     const [rows] = await pool.query(
       `SELECT 
-        u.id as user_id, u.email, u.full_name as name, u.phone, u.role, u.is_active,
+        u.id as user_id, u.email, u.avatar_url, u.full_name as name, u.phone, u.role, u.is_active,
         sp.id as profile_id, sp.staff_code, sp.role_title, sp.color_hex,
         sp.working_days_json, sp.work_start_time, sp.work_end_time,
         sp.break_start_time, sp.break_end_time, sp.unavailable_dates_json
@@ -112,6 +114,7 @@ const getStaffById = async (req, res, next) => {
       staffCode: r.staff_code || `STF-${100 + r.user_id}`,
       name: r.name,
       email: r.email,
+      avatarUrl: r.avatar_url || '',
       phone: r.phone || '',
       role: r.role_title || 'Maintenance Specialist',
       color: r.color_hex || '#009bf2',
@@ -177,16 +180,27 @@ const createStaff = async (req, res, next) => {
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash('Password123!', salt);
 
+    const avatarPath = req.file ? `/uploads/${req.file.filename}` : (req.body.avatarUrl || req.body.avatar_url || null);
+
     // 1. Create User
     const [userResult] = await connection.query(
-      'INSERT INTO users (email, password_hash, full_name, role, phone, is_active) VALUES (?, ?, ?, ?, ?, ?)',
-      [staffEmail, passwordHash, staffName, 'MAINTENANCE_STAFF', staffPhone, 1]
+      'INSERT INTO users (email, password_hash, full_name, role, phone, avatar_url, is_active) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [staffEmail, passwordHash, staffName, 'MAINTENANCE_STAFF', staffPhone, avatarPath, 1]
     );
 
     const userId = userResult.insertId;
     const staffCode = `STF-${100 + userId}`;
     const staffColor = color || '#009bf2';
-    const daysJson = JSON.stringify(workingDays || ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']);
+    
+    let daysArray = workingDays;
+    if (typeof daysArray === 'string') {
+      try {
+        daysArray = JSON.parse(daysArray);
+      } catch (e) {
+        daysArray = daysArray.split(',').map(d => d.trim());
+      }
+    }
+    const daysJson = JSON.stringify(daysArray || ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']);
 
     // 2. Create Staff Profile
     const [profileResult] = await connection.query(
@@ -229,7 +243,7 @@ const updateStaff = async (req, res, next) => {
   try {
     const { id } = req.params;
     const cleanId = id.replace(/^(stf-|usr-)/, '');
-    const { full_name, name, phone, role, role_title, color, workingDays, startTime, endTime } = req.body;
+    const { full_name, name, phone, email, avatarUrl, avatar_url, role, role_title, color, workingDays, startTime, endTime } = req.body;
 
     const [existing] = await connection.query(
       'SELECT sp.id as profile_id, sp.user_id FROM staff_profiles sp WHERE sp.id = ? OR sp.user_id = ?',
@@ -244,19 +258,48 @@ const updateStaff = async (req, res, next) => {
       });
     }
 
+    // Authorization Check: User can update if they are an admin or if it is their own profile
+    const isSelf = existing[0].user_id === req.user.id;
+    const isAdmin = req.user.role === 'OFFICE_ADMIN';
+    if (!isAdmin && !isSelf) {
+      connection.release();
+      return res.status(403).json({
+        success: false,
+        message: 'Forbidden. You are not authorized to update this profile.'
+      });
+    }
+
     await connection.beginTransaction();
 
     const profileId = existing[0].profile_id;
     const userId = existing[0].user_id;
     const staffName = (full_name || name || '').trim();
     const staffPhone = (phone || '').trim();
+    const staffEmail = (email || '').trim();
+    const staffAvatar = req.file ? `/uploads/${req.file.filename}` : (avatarUrl !== undefined || avatar_url !== undefined ? (avatarUrl || avatar_url || '') : null);
     const staffRoleTitle = (role_title || role || 'Maintenance Technician').trim();
 
     if (staffName) {
-      await connection.query('UPDATE users SET full_name = ?, phone = ? WHERE id = ?', [staffName, staffPhone, userId]);
+      await connection.query(
+        `UPDATE users SET 
+          full_name = ?, 
+          phone = ?, 
+          email = COALESCE(NULLIF(?, ''), email),
+          avatar_url = CASE WHEN ? IS NOT NULL THEN NULLIF(?, '') ELSE avatar_url END
+         WHERE id = ?`,
+        [staffName, staffPhone, staffEmail, staffAvatar, staffAvatar, userId]
+      );
     }
 
-    const daysJson = workingDays ? JSON.stringify(workingDays) : null;
+    let daysArray = workingDays;
+    if (typeof daysArray === 'string') {
+      try {
+        daysArray = JSON.parse(daysArray);
+      } catch (e) {
+        daysArray = daysArray.split(',').map(d => d.trim());
+      }
+    }
+    const daysJson = daysArray ? JSON.stringify(daysArray) : null;
     await connection.query(
       `UPDATE staff_profiles SET 
         role_title = COALESCE(?, role_title),

@@ -23,6 +23,7 @@ import MaintenanceSettingsPage from '../pages/maintenance/MaintenanceSettingsPag
 import MaintenanceStaffPortalPage from '../pages/maintenance/MaintenanceStaffPortalPage';
 import MaintenanceStaffHistoryPage from '../pages/maintenance/MaintenanceStaffHistoryPage';
 import MaintenanceStaffProfilePage from '../pages/maintenance/MaintenanceStaffProfilePage';
+import MaintenanceNotificationsPage from '../pages/maintenance/MaintenanceNotificationsPage';
 // Public AP Maintenance Resident Portals
 import ResidentBookingPage from '../pages/public/ResidentBookingPage';
 import ResidentQuoteUploadPage from '../pages/public/ResidentQuoteUploadPage';
@@ -57,6 +58,7 @@ export default function AppRoutes() {
           <Route path="staff" element={<MaintenanceStaffPage />} />
           <Route path="calendar" element={<MaintenanceCalendarPage />} />
           <Route path="settings" element={<MaintenanceSettingsPage />} />
+          <Route path="notifications" element={<MaintenanceNotificationsPage />} />
         </Route>
 
         {/* Dedicated Technician / Staff Portal Routes */}
@@ -66,6 +68,7 @@ export default function AppRoutes() {
           <Route path="history" element={<MaintenanceStaffHistoryPage />} />
           <Route path="profile" element={<MaintenanceStaffProfilePage />} />
           <Route path="calendar" element={<MaintenanceCalendarPage />} />
+          <Route path="notifications" element={<MaintenanceNotificationsPage />} />
 
           {/* Legacy maintenance admin route redirects to /admin/* */}
           <Route path="dashboard" element={<Navigate to="/admin/dashboard" replace />} />
