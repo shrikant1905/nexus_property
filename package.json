@@ -1,0 +1,9 @@
+{
+  "name": "property-new-root",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix relaxtay-frontend run dev",
+    "build": "npm --prefix relaxtay-frontend run build",
+    "preview": "npm --prefix relaxtay-frontend run preview"
+  }
+}

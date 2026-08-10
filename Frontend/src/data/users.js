@@ -1,0 +1,97 @@
+export const users = [
+  {
+    id: 'u1',
+    initials: 'OA',
+    name: 'Office Admin',
+    email: 'admin@nexusfms.com',
+    role: 'Office Admin',
+    status: 'Active',
+    lastLogin: '2026-08-08 09:30 AM',
+  },
+  {
+    id: 'u2',
+    initials: 'MS',
+    name: 'Maintenance Staff',
+    email: 'staff@nexusfms.com',
+    role: 'Maintenance Staff',
+    status: 'Active',
+    lastLogin: '2026-08-08 08:15 AM',
+  },
+  {
+    id: 'u3',
+    initials: 'JP',
+    name: 'James Park',
+    email: 'james@relaxtay.com',
+    role: 'Operations Staff',
+    status: 'Active',
+    lastLogin: '2026-03-05 04:45 PM',
+  },
+  {
+    id: 'u4',
+    initials: 'JS',
+    name: 'John Smith',
+    email: 'john@smith.email.com',
+    role: 'Property Owner',
+    status: 'Active',
+    lastLogin: '2026-03-04 11:20 AM',
+  },
+  {
+    id: 'u5',
+    initials: 'SJ',
+    name: 'Sarah Johnson',
+    email: 'sarah@example.com',
+    role: 'Property Owner',
+    status: 'Active',
+    lastLogin: '2026-03-03 02:10 PM',
+  },
+];
+
+export const roleSummaries = [
+  {
+    role: 'Super Admin',
+    color: 'red',
+    permissions: [
+      'Full System Access',
+      'All Properties',
+      'Accounting',
+      'Reports',
+      'User Management',
+      'Settings',
+    ],
+    userCount: 1,
+  },
+  {
+    role: 'Finance Manager',
+    color: 'teal',
+    permissions: [
+      'Transactions',
+      'Invoices',
+      'Payments',
+      'Accounting',
+      'Reports',
+    ],
+    userCount: 1,
+  },
+  {
+    role: 'Operations Staff',
+    color: 'amber',
+    permissions: [
+      'Properties',
+      'Reservations',
+      'Maintenance',
+      'Billable Expenses',
+    ],
+    userCount: 1,
+  },
+  {
+    role: 'Property Owner',
+    color: 'blue',
+    permissions: [
+      'Own Properties Only',
+      'Own Invoices',
+      'Own Payments',
+      'Own Reports',
+    ],
+    userCount: 2,
+  },
+];
