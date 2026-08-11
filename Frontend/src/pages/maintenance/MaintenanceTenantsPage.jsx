@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { UserPlus, Search, Edit2, Trash2, Eye, Phone, Mail, MapPin, Loader2, AlertCircle } from 'lucide-react';
+import { UserPlus, Search, Edit2, Trash2, Eye, Phone, Mail, MapPin, Loader2, AlertCircle, ExternalLink, User } from 'lucide-react';
 import { tenantService } from '../../services/tenantService';
 import FormModal from '../../components/modals/FormModal';
 import { FormField } from '../../components/forms/FormFields';
@@ -23,6 +23,7 @@ function normalizeTenant(t) {
     email: t.email || '',
     address: t.address || '',
     notes: t.notes || '',
+    documentUrl: t.document_url || '',
     createdAt: t.created_at ? new Date(t.created_at).toLocaleDateString() : 'N/A',
   };
 }
@@ -36,6 +37,7 @@ export default function MaintenanceTenantsPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingTenant, setEditingTenant] = useState(null);
   const [viewingTenant, setViewingTenant] = useState(null);
+  const [documentFile, setDocumentFile] = useState(null);
   const [form, setForm] = useState(emptyTenantForm);
 
   const loadTenants = useCallback(async () => {
@@ -59,7 +61,11 @@ export default function MaintenanceTenantsPage() {
 
   const openAddModal = () => {
     setEditingTenant(null);
-    setForm(emptyTenantForm);
+    setForm({
+      ...emptyTenantForm,
+      documentUrl: '',
+    });
+    setDocumentFile(null);
     setModalOpen(true);
   };
 
@@ -71,7 +77,9 @@ export default function MaintenanceTenantsPage() {
       email: tenant.email || '',
       address: tenant.address || '',
       notes: tenant.notes || '',
+      documentUrl: tenant.documentUrl || '',
     });
+    setDocumentFile(null);
     setModalOpen(true);
   };
 
@@ -92,21 +100,24 @@ export default function MaintenanceTenantsPage() {
 
     setSaving(true);
     try {
-      const payload = {
-        full_name: form.name.trim(),
-        phone: form.phone.trim(),
-        email: form.email.trim() || null,
-        address: form.address.trim(),
-        notes: form.notes.trim() || null,
-      };
+      const formData = new FormData();
+      formData.append('full_name', form.name.trim());
+      formData.append('phone', form.phone.trim());
+      formData.append('email', form.email.trim());
+      formData.append('address', form.address.trim());
+      formData.append('notes', form.notes.trim());
+      if (documentFile) {
+        formData.append('document', documentFile);
+      }
 
       if (editingTenant) {
-        await tenantService.updateTenant(editingTenant.id, payload);
+        await tenantService.updateTenant(editingTenant.id, formData);
       } else {
-        await tenantService.addTenant(payload);
+        await tenantService.addTenant(formData);
       }
       await loadTenants();
       setModalOpen(false);
+      setDocumentFile(null);
     } catch (err) {
       alert(err.message || 'Failed to save resident.');
     } finally {
@@ -195,8 +206,21 @@ export default function MaintenanceTenantsPage() {
                 >
                   <div className="flex items-center justify-between gap-3 border-b border-slate-100 pb-3">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-sky-50 border border-sky-200 text-sky-700 flex items-center justify-center font-black flex-shrink-0">
-                        {t.name.charAt(0).toUpperCase()}
+                      <div className="w-10 h-10 rounded-xl bg-sky-50 border border-sky-200 overflow-hidden flex items-center justify-center font-black flex-shrink-0 text-sky-700">
+                        {t.documentUrl ? (
+                          <img
+                            src={t.documentUrl.startsWith('/uploads') ? `http://localhost:5000${t.documentUrl}` : t.documentUrl}
+                            alt={t.name}
+                            className="w-full h-full object-cover"
+                            onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextSibling.style.display = 'flex'; }}
+                          />
+                        ) : null}
+                        <span
+                          className="w-full h-full flex items-center justify-center font-black text-sky-700"
+                          style={{ display: t.documentUrl ? 'none' : 'flex' }}
+                        >
+                          {(t.full_name || t.name || '?').charAt(0).toUpperCase()}
+                        </span>
                       </div>
                       <div>
                         <h3 className="text-sm font-bold text-slate-900 leading-tight">{t.name}</h3>
@@ -288,8 +312,21 @@ export default function MaintenanceTenantsPage() {
                     filteredTenants.map((t) => (
                       <tr key={t.id} className="hover:bg-slate-50/80 transition-colors">
                         <td className="px-6 py-4 font-bold text-slate-900 flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-xl bg-sky-50 border border-sky-200 text-sky-800 flex items-center justify-center font-black">
-                            {t.name.charAt(0).toUpperCase()}
+                          <div className="w-9 h-9 rounded-xl bg-sky-50 border border-sky-200 overflow-hidden flex items-center justify-center font-black text-sky-800">
+                            {t.documentUrl ? (
+                              <img
+                                src={t.documentUrl.startsWith('/uploads') ? `http://localhost:5000${t.documentUrl}` : t.documentUrl}
+                                alt={t.name}
+                                className="w-full h-full object-cover"
+                                onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextSibling.style.display = 'flex'; }}
+                              />
+                            ) : null}
+                            <span
+                              className="w-full h-full flex items-center justify-center font-black text-sky-800"
+                              style={{ display: t.documentUrl ? 'none' : 'flex' }}
+                            >
+                              {(t.full_name || t.name || '?').charAt(0).toUpperCase()}
+                            </span>
                           </div>
                           <div>
                             <p className="text-sm font-bold text-slate-900">{t.name}</p>
@@ -367,6 +404,46 @@ export default function MaintenanceTenantsPage() {
         submitLabel={saving ? 'Saving...' : editingTenant ? 'Update Resident' : 'Save Resident'}
       >
         <div className="space-y-4">
+          {/* Avatar / Profile Picture Uploader */}
+          <div className="flex flex-col items-center justify-center pb-2">
+            <div className="relative group cursor-pointer" onClick={() => document.getElementById('resident-avatar-input').click()}>
+              <div className="w-20 h-20 rounded-full border-2 border-slate-200 overflow-hidden bg-slate-100 flex items-center justify-center relative shadow-sm group-hover:border-[#00204a] transition-all">
+                {documentFile ? (
+                  <img
+                    src={URL.createObjectURL(documentFile)}
+                    alt="Preview"
+                    className="w-full h-full object-cover"
+                  />
+                ) : form.documentUrl ? (
+                  <img
+                    src={form.documentUrl.startsWith('/uploads') ? `http://localhost:5000${form.documentUrl}` : form.documentUrl}
+                    alt="Resident Avatar"
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <User className="text-slate-400 w-8 h-8" />
+                )}
+                
+                {/* Overlay camera icon on hover */}
+                <div className="absolute inset-0 bg-[#00204a]/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-full">
+                  <span className="text-white text-[10px] font-bold">Upload</span>
+                </div>
+              </div>
+            </div>
+            <input
+              id="resident-avatar-input"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={(e) => {
+                if (e.target.files?.[0]) {
+                  setDocumentFile(e.target.files[0]);
+                }
+              }}
+              className="hidden"
+            />
+            <p className="text-[11px] text-slate-500 font-bold mt-1.5">Click to upload photo</p>
+          </div>
+
           <FormField
             label="Full Name *"
             name="name"
@@ -422,6 +499,26 @@ export default function MaintenanceTenantsPage() {
       >
         {viewingTenant && (
           <div className="space-y-4 text-xs">
+            {/* Profile Avatar */}
+            <div className="flex justify-center pb-1">
+              <div className="w-16 h-16 rounded-full border-2 border-slate-200 overflow-hidden bg-sky-50 flex items-center justify-center shadow-sm">
+                {viewingTenant.documentUrl ? (
+                  <img
+                    src={viewingTenant.documentUrl.startsWith('/uploads') ? `http://localhost:5000${viewingTenant.documentUrl}` : viewingTenant.documentUrl}
+                    alt={viewingTenant.name}
+                    className="w-full h-full object-cover"
+                    onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextSibling.style.display = 'flex'; }}
+                  />
+                ) : null}
+                <span
+                  className="text-2xl font-black text-sky-700"
+                  style={{ display: viewingTenant.documentUrl ? 'none' : 'flex' }}
+                >
+                  {(viewingTenant.name || '?').charAt(0).toUpperCase()}
+                </span>
+              </div>
+            </div>
+
             <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-slate-500 font-medium">Resident Name:</span>
@@ -439,6 +536,19 @@ export default function MaintenanceTenantsPage() {
                 <span className="text-slate-500 font-medium">Address:</span>
                 <span className="text-slate-800 font-medium">{viewingTenant.address}</span>
               </div>
+              {viewingTenant.documentUrl && (
+                <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                  <span className="text-slate-500 font-medium">Agreement/ID Document:</span>
+                  <a
+                    href={viewingTenant.documentUrl.startsWith('/uploads') ? `http://localhost:5000${viewingTenant.documentUrl}` : viewingTenant.documentUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-emerald-700 hover:text-emerald-950 font-bold flex items-center gap-1 underline"
+                  >
+                    View Document <ExternalLink size={12} />
+                  </a>
+                </div>
+              )}
             </div>
 
             <div>

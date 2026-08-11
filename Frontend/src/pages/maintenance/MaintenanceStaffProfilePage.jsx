@@ -96,7 +96,7 @@ export default function MaintenanceStaffProfilePage() {
         <div className="flex items-center gap-4">
           {staff?.avatarUrl ? (
             <img
-              src={staff.avatarUrl}
+              src={staff.avatarUrl.startsWith('/uploads') ? `http://localhost:5000${staff.avatarUrl}` : staff.avatarUrl}
               alt={staff.name}
               className="w-16 h-16 rounded-2xl object-cover shadow-md flex-shrink-0 border border-slate-200"
             />

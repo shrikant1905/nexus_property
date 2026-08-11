@@ -20,18 +20,19 @@ const storage = multer.diskStorage({
   },
 });
 
-// Strict Image MIME Filter (Photos ONLY for Staff Completion Proofs)
+// Strict Image & Document MIME Filter (Photos & PDFs allowed)
 const imageOnlyFilter = (req, file, cb) => {
   const allowedImageTypes = [
     'image/jpeg',
     'image/png',
     'image/webp',
+    'application/pdf'
   ];
 
   if (allowedImageTypes.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error(`Invalid file type '${file.mimetype}'. Only JPEG, PNG, and WEBP image files are allowed for staff completion proofs.`), false);
+    cb(new Error(`Invalid file type '${file.mimetype}'. Only JPEG, PNG, WEBP images, and PDF documents are allowed.`), false);
   }
 };
 

@@ -31,7 +31,7 @@ const getStaff = async (req, res, next) => {
         sp.updated_at
       FROM users u
       LEFT JOIN staff_profiles sp ON u.id = sp.user_id
-      WHERE u.role = 'MAINTENANCE_STAFF' OR sp.id IS NOT NULL
+      WHERE u.role = 'MAINTENANCE_STAFF'
     `;
 
     const queryParams = [];

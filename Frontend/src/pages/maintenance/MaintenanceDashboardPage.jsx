@@ -1,27 +1,24 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   FileText, CheckCircle2, Wrench, Clock, Plus, Search, User, MapPin,
   Calendar as CalendarIcon, ArrowRight, Shield, DollarSign, Users,
   TrendingUp, TrendingDown, Sparkles, Filter, Copy, Check, ExternalLink,
-  Boxes, AlertTriangle
+  Boxes, AlertTriangle, RefreshCw, MessageSquare, Loader2
 } from 'lucide-react';
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, Tooltip, ResponsiveContainer
 } from 'recharts';
+import { dashboardService } from '../../services/dashboardService';
 import { jobService } from '../../services/jobService';
 import { staffService } from '../../services/staffService';
 import { tenantService } from '../../services/tenantService';
-import { bookingService } from '../../services/bookingService';
-import { quoteService } from '../../services/quoteService';
 import FormModal from '../../components/modals/FormModal';
 import { FormField, SelectField } from '../../components/forms/FormFields';
 import { staggerContainer, staggerItem, slideInBottom } from '../../utils/motionVariants';
 import Toast from '../../components/common/Toast';
-
-// Recharts Analytics Data Structure (Rendered dynamically when real API data returns)
 
 const SECTIONS = [
   { id: 'Quotes', label: 'Quotes', icon: FileText, color: 'text-cyan-400', border: 'border-cyan-500/30', bg: 'bg-cyan-500/10' },
@@ -31,56 +28,164 @@ const SECTIONS = [
   { id: 'Completed Jobs', label: 'Completed Jobs', icon: CheckCircle2, color: 'text-purple-400', border: 'border-purple-500/30', bg: 'bg-purple-500/10' },
 ];
 
+// ── Skeleton Loader Card ────────────────────────────────────────────────────
+function SkeletonCard() {
+  return (
+    <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm animate-pulse">
+      <div className="flex items-start justify-between">
+        <div className="space-y-2">
+          <div className="h-2.5 w-24 bg-slate-200 rounded-full" />
+          <div className="h-8 w-12 bg-slate-200 rounded-xl" />
+        </div>
+        <div className="w-10 h-10 rounded-xl bg-slate-200" />
+      </div>
+      <div className="h-2.5 w-32 bg-slate-100 rounded-full mt-3" />
+    </div>
+  );
+}
+
+// ── Loading Skeleton for Charts ─────────────────────────────────────────────
+function SkeletonChart({ height = 220 }) {
+  return (
+    <div className="animate-pulse" style={{ height }}>
+      <div className="h-full bg-slate-100 rounded-2xl flex items-center justify-center">
+        <Loader2 size={28} className="text-slate-300 animate-spin" />
+      </div>
+    </div>
+  );
+}
+
 export default function MaintenanceDashboardPage() {
   const navigate = useNavigate();
+
+  // ── Dashboard Stats State ──────────────────────────────────────────────────
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [lastRefreshed, setLastRefreshed] = useState(null);
+
+  // ── Job list for modals (separate fetch) ──────────────────────────────────
   const [jobs, setJobs] = useState([]);
   const [staffList, setStaffList] = useState([]);
   const [tenants, setTenants] = useState([]);
+
+  // ── UI State ───────────────────────────────────────────────────────────────
   const [search, setSearch] = useState('');
   const [newModalOpen, setNewModalOpen] = useState(false);
   const [selectedJob, setSelectedJob] = useState(null);
   const [copiedToken, setCopiedToken] = useState(null);
-  const [mobileSectionTab, setMobileSectionTab] = useState('Quotes');
   const [toast, setToast] = useState(null);
 
-  // Load API Data
-  useEffect(() => {
-    const loadDashboardData = async () => {
-      try {
-        const [jobsRes, staffRes, tenantsRes] = await Promise.all([
-          jobService.getJobs().catch(() => []),
-          staffService.getStaff().catch(() => []),
-          tenantService.getTenants().catch(() => []),
-        ]);
-        setJobs(Array.isArray(jobsRes) ? jobsRes : jobsRes?.data || []);
-        setStaffList(Array.isArray(staffRes) ? staffRes : staffRes?.data || []);
-        setTenants(Array.isArray(tenantsRes) ? tenantsRes : tenantsRes?.data || []);
-      } catch (err) {
-        setJobs([]);
-        setStaffList([]);
-        setTenants([]);
-      }
-    };
-    loadDashboardData();
+  const refreshIntervalRef = useRef(null);
+
+  const showToast = useCallback((message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3500);
   }, []);
 
-  const initialFormState = {
+  // ── Fetch aggregated dashboard stats ──────────────────────────────────────
+  const loadStats = useCallback(async (isManual = false) => {
+    try {
+      if (isManual) setLoading(true);
+      const res = await dashboardService.getStats();
+      if (res?.success && res?.data) {
+        setStats(res.data);
+        setLastRefreshed(new Date());
+        // Sync staff list from stats (used in modals)
+        if (res.data.staffWorkload?.length > 0) {
+          setStaffList(res.data.staffWorkload);
+        }
+      }
+    } catch (err) {
+      if (isManual) showToast('⚠ Could not refresh dashboard data. Check your connection.', 'error');
+    } finally {
+      if (isManual) setLoading(false);
+    }
+  }, [showToast]);
+
+  // ── Fetch supporting data for modals (jobs, tenants, staff) ───────────────
+  const loadSupportingData = useCallback(async () => {
+    try {
+      const [jobsRes, staffRes, tenantsRes] = await Promise.all([
+        jobService.getJobs().catch(() => ({ data: [] })),
+        staffService.getStaff().catch(() => ({ data: [] })),
+        tenantService.getTenants().catch(() => ({ data: [] })),
+      ]);
+      setJobs(Array.isArray(jobsRes) ? jobsRes : jobsRes?.data || []);
+      setStaffList(Array.isArray(staffRes) ? staffRes : staffRes?.data || []);
+      setTenants(Array.isArray(tenantsRes) ? tenantsRes : tenantsRes?.data || []);
+    } catch (_) {
+      // Silent — supporting data failure doesn't block dashboard
+    }
+  }, []);
+
+  // ── Initial load ───────────────────────────────────────────────────────────
+  useEffect(() => {
+    const init = async () => {
+      setLoading(true);
+      await Promise.all([loadStats(false), loadSupportingData()]);
+      setLoading(false);
+    };
+    init();
+
+    // Auto-refresh stats every 30 seconds
+    refreshIntervalRef.current = setInterval(() => loadStats(false), 30000);
+    return () => clearInterval(refreshIntervalRef.current);
+  }, [loadStats, loadSupportingData]);
+
+  // ── Derived stats from API ─────────────────────────────────────────────────
+  const stageCounts = stats?.stageCounts || {};
+  const quotesCount         = stageCounts['Quotes'] || 0;
+  const completedQuotes     = stageCounts['Completed Quotes'] || 0;
+  const activeJobsCount     = stageCounts['Jobs'] || 0;
+  const completedJobsCount  = stageCounts['Completed Jobs'] || 0;
+  const waitingBookingCount = stageCounts['Jobs Waiting Booking'] || 0;
+  const totalJobs           = stats?.totalJobs || 0;
+  const staffWorkload       = stats?.staffWorkload || [];
+  const weeklyTrend         = stats?.weeklyTrend || [];
+  const recentJobs          = stats?.recentJobs || [];
+  const pendingQuoteRequests = stats?.pendingQuoteRequests || 0;
+
+  // ── Category breakdown — comes from server (all jobs, not just recent 10) ──
+  const categoryBreakdown = stats?.categoryBreakdown || [
+    { name: 'Plumbing & Leaks',      value: 0, color: '#009bf2' },
+    { name: 'Electrical & Lighting', value: 0, color: '#10b981' },
+    { name: 'HVAC & Air Con',        value: 0, color: '#f59e0b' },
+    { name: 'Locks & Carpentry',     value: 0, color: '#a855f7' },
+    { name: 'Appliance Repair',      value: 0, color: '#ec4899' },
+  ];
+
+  // ── Bar chart data — activeJobs from server-side GROUP BY ──────────────────
+  const staffBarData = staffWorkload.map(s => ({
+    name:     s.name.split(' ')[0],
+    fullName: s.name,
+    jobs:     s.activeJobs,
+    color:    s.color || '#a855f7',
+  }));
+
+  // ── Show last 7 days of the 30-day trend for chart display ───────────────────
+  const chartTrend = weeklyTrend.slice(-7);
+
+  // ── Overall workload % ─────────────────────────────────────────────────────
+  const overallWorkload = staffWorkload.length > 0
+    ? Math.round((totalJobs / (staffWorkload.length * 8)) * 100)
+    : 0;
+
+  // ── Modal form state ───────────────────────────────────────────────────────
+  const [form, setForm] = useState({
     title: '',
     managerName: '',
-    tenantId: tenants[0]?.id || '',
-    address: tenants[0]?.address || '',
-    contactPhone: tenants[0]?.phone || '',
+    tenantId: '',
+    address: '',
+    contactPhone: '',
     description: '',
     durationHours: '1.5',
-    assignedStaffId: staffList[0]?.id || '',
+    assignedStaffId: '',
     section: 'Quotes',
-  };
-
-  const [form, setForm] = useState(initialFormState);
+  });
 
   const handleTenantSelect = (selectedId) => {
-    const tenant = tenants.find((t) => t.id === selectedId);
-    setForm((prev) => ({
+    const tenant = tenants.find(t => String(t.id) === String(selectedId));
+    setForm(prev => ({
       ...prev,
       tenantId: selectedId,
       address: tenant?.address || '',
@@ -92,45 +197,36 @@ export default function MaintenanceDashboardPage() {
   const handleSectionChange = async (jobId, newSection) => {
     try {
       await jobService.moveJobStage(jobId, newSection);
-      const jobsRes = await jobService.getJobs();
-      setJobs(Array.isArray(jobsRes) ? jobsRes : jobsRes?.data || []);
-      if (selectedJob && selectedJob.id === jobId) {
-        setSelectedJob((prev) => ({ ...prev, section: newSection }));
-      }
+      if (selectedJob?.id === jobId) setSelectedJob(prev => ({ ...prev, section: newSection }));
+      await loadStats(false);
+      showToast(`✓ Job moved to "${newSection}".`);
     } catch (err) {
-      alert(err.message || 'Failed to update job stage');
+      showToast(err.message || 'Failed to update job stage.', 'error');
     }
   };
 
   const handleStaffChange = async (jobId, staffId) => {
     try {
       await jobService.updateJobStatus(jobId, { assignedStaffId: staffId || null });
-      const jobsRes = await jobService.getJobs();
-      setJobs(Array.isArray(jobsRes) ? jobsRes : jobsRes?.data || []);
+      await loadStats(false);
+      showToast('✓ Technician assigned successfully.');
     } catch (err) {
-      alert(err.message || 'Failed to update assigned staff.');
+      showToast(err.message || 'Failed to update assigned staff.', 'error');
     }
   };
 
   const handleCreateJob = async (e) => {
     e?.preventDefault();
-    if (!form.title.trim()) {
-      alert('Job Title is mandatory.');
-      return;
-    }
-    if (!form.address.trim()) {
-      alert('Full Address is mandatory.');
-      return;
-    }
+    if (!form.title.trim()) { showToast('Job Title is mandatory.', 'error'); return; }
+    if (!form.address.trim()) { showToast('Full Address is mandatory.', 'error'); return; }
 
     try {
-      const tenant = tenants.find((t) => String(t.id) === String(form.tenantId));
-
+      const tenant = tenants.find(t => String(t.id) === String(form.tenantId));
       const payload = {
         title: form.title.trim(),
         manager_name: form.managerName.trim() || undefined,
         resident_id: form.tenantId || undefined,
-        resident_name: tenant?.name || form.name || 'Resident',
+        resident_name: tenant?.name || form.managerName || 'Resident',
         contact_phone: form.contactPhone.trim() || tenant?.phone || '',
         property_address: form.address.trim(),
         description: form.description.trim() || undefined,
@@ -140,12 +236,15 @@ export default function MaintenanceDashboardPage() {
       };
 
       await jobService.createJob(payload);
-      const jobsRes = await jobService.getJobs();
-      setJobs(Array.isArray(jobsRes) ? jobsRes : jobsRes?.data || []);
+
+      // Refresh stats + job list after creation
+      await Promise.all([loadStats(false), loadSupportingData()]);
+
       setNewModalOpen(false);
-      setForm(initialFormState);
+      setForm({ title: '', managerName: '', tenantId: '', address: '', contactPhone: '', description: '', durationHours: '1.5', assignedStaffId: '', section: 'Quotes' });
+      showToast('✓ New maintenance job created successfully!');
     } catch (err) {
-      alert(err.message || 'Failed to create work order.');
+      showToast(err.message || 'Failed to create work order.', 'error');
     }
   };
 
@@ -157,108 +256,85 @@ export default function MaintenanceDashboardPage() {
       navigator.clipboard.writeText(url);
       setCopiedToken(token);
       setTimeout(() => setCopiedToken(null), 2500);
-      setToast({ message: '✓ Booking link successfully generated and copied to clipboard!', type: 'success' });
-      setTimeout(() => setToast(null), 3000);
+      showToast('✓ Booking link generated and copied to clipboard!');
     } catch (err) {
-      setToast({ message: err.message || 'Failed to generate booking link', type: 'error' });
-      setTimeout(() => setToast(null), 3000);
+      showToast(err.message || 'Failed to generate booking link', 'error');
     }
   };
 
-  const filteredJobs = jobs.filter((j) =>
-    j.title.toLowerCase().includes(search.toLowerCase()) ||
+  const filteredRecentJobs = recentJobs.filter(j =>
+    (j.title || '').toLowerCase().includes(search.toLowerCase()) ||
     (j.tenantName || '').toLowerCase().includes(search.toLowerCase()) ||
     (j.address || '').toLowerCase().includes(search.toLowerCase())
   );
 
-  const quotesCount = jobs.filter((j) => j.section === 'Quotes').length;
-  const activeJobsCount = jobs.filter((j) => j.section === 'Jobs').length;
-  const completedJobsCount = jobs.filter((j) => j.section === 'Completed Jobs').length;
-  const waitingBookingCount = jobs.filter((j) => j.section === 'Jobs Waiting Booking').length;
-
-  // Calculate dynamic weekly trend
-  const weeklyJobsTrend = [
-    { day: 'Mon', quotes: 0, bookedJobs: 0, completed: 0 },
-    { day: 'Tue', quotes: 0, bookedJobs: 0, completed: 0 },
-    { day: 'Wed', quotes: 0, bookedJobs: 0, completed: 0 },
-    { day: 'Thu', quotes: 0, bookedJobs: 0, completed: 0 },
-    { day: 'Fri', quotes: 0, bookedJobs: 0, completed: 0 },
-    { day: 'Sat', quotes: 0, bookedJobs: 0, completed: 0 },
-    { day: 'Sun', quotes: 0, bookedJobs: 0, completed: 0 },
-  ];
-
-  jobs.forEach(j => {
-    if (!j.createdAt) return;
-    const date = new Date(j.createdAt);
-    const dayIndex = date.getDay(); // 0 = Sun, 1 = Mon, ..., 6 = Sat
-    const daysMap = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const dayName = daysMap[dayIndex];
-    const trendDay = weeklyJobsTrend.find(d => d.day === dayName);
-    if (trendDay) {
-      if (j.section === 'Quotes') trendDay.quotes += 1;
-      else if (j.section === 'Jobs') trendDay.bookedJobs += 1;
-      else if (j.section === 'Completed Jobs') trendDay.completed += 1;
-    }
-  });
-
-  const catCounts = {
-    'Plumbing & Leaks': 0,
-    'Electrical & Lighting': 0,
-    'HVAC & Air Con': 0,
-    'Locks & Carpentry': 0,
-    'Appliance Repair': 0
+  const timeAgo = (date) => {
+    if (!date) return '';
+    const now = new Date();
+    const d = new Date(date);
+    const diffDays = Math.floor((now - d) / (1000 * 60 * 60 * 24));
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Yesterday';
+    return `${diffDays}d ago`;
   };
 
-  jobs.forEach(j => {
-    const text = `${j.title} ${j.description}`.toLowerCase();
-    if (text.includes('plumb') || text.includes('leak') || text.includes('pipe') || text.includes('water') || text.includes('drain') || text.includes('heater')) {
-      catCounts['Plumbing & Leaks'] += 1;
-    } else if (text.includes('electr') || text.includes('light') || text.includes('wiring') || text.includes('power') || text.includes('bulb') || text.includes('fuse')) {
-      catCounts['Electrical & Lighting'] += 1;
-    } else if (text.includes('hvac') || text.includes('air con') || text.includes('heating') || text.includes('ac ') || text.includes('cooler')) {
-      catCounts['HVAC & Air Con'] += 1;
-    } else if (text.includes('lock') || text.includes('key') || text.includes('door') || text.includes('carpentry') || text.includes('wood') || text.includes('hinge')) {
-      catCounts['Locks & Carpentry'] += 1;
-    } else {
-      catCounts['Appliance Repair'] += 1; // Default
-    }
-  });
+  const sectionBadge = {
+    'Quotes':              'bg-sky-100 text-sky-800 border-sky-200',
+    'Completed Quotes':    'bg-emerald-100 text-emerald-800 border-emerald-200',
+    'Jobs Waiting Booking':'bg-amber-100 text-amber-800 border-amber-200',
+    'Jobs':                'bg-blue-100 text-blue-800 border-blue-200',
+    'Completed Jobs':      'bg-purple-100 text-purple-800 border-purple-200',
+  };
 
-  const totalCategorized = Object.values(catCounts).reduce((a, b) => a + b, 0) || 1;
-  const categoryBreakdown = [
-    { name: 'Plumbing & Leaks', value: Math.round((catCounts['Plumbing & Leaks'] / totalCategorized) * 100), color: '#009bf2' },
-    { name: 'Electrical & Lighting', value: Math.round((catCounts['Electrical & Lighting'] / totalCategorized) * 100), color: '#10b981' },
-    { name: 'HVAC & Air Con', value: Math.round((catCounts['HVAC & Air Con'] / totalCategorized) * 100), color: '#f59e0b' },
-    { name: 'Locks & Carpentry', value: Math.round((catCounts['Locks & Carpentry'] / totalCategorized) * 100), color: '#a855f7' },
-    { name: 'Appliance Repair', value: Math.round((catCounts['Appliance Repair'] / totalCategorized) * 100), color: '#ec4899' },
-  ];
-
+  // ── RENDER ─────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6 max-w-full overflow-x-hidden text-slate-800">
-      {/* Responsive Header & Controls */}
+
+      {/* Header & Controls */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl sm:text-2xl md:text-3xl font-black text-[#00204a] tracking-tight leading-tight">
             Maintenance Dashboard
           </h1>
-          <p className="text-xs sm:text-sm text-slate-500 mt-1 font-medium">
-            Manage jobs, quotes, bookings, residents, and staff availability
-          </p>
+          <div className="flex items-center gap-3 mt-1">
+            <p className="text-xs sm:text-sm text-slate-500 font-medium">
+              Manage jobs, quotes, bookings, residents, and staff availability
+            </p>
+            {lastRefreshed && (
+              <span className="text-[10px] text-slate-400 font-mono hidden sm:inline">
+                Updated {lastRefreshed.toLocaleTimeString()}
+              </span>
+            )}
+          </div>
         </div>
 
-        {/* Fully Responsive Search and Action Button */}
         <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
+          {/* Search */}
           <div className="relative w-full sm:w-64 flex-shrink-0">
             <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={e => setSearch(e.target.value)}
               placeholder="Search jobs, tenants..."
               className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#00204a] shadow-xs"
             />
           </div>
 
+          {/* Manual Refresh */}
+          <motion.button
+            whileHover={{ scale: 1.02, y: -1 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => loadStats(true)}
+            disabled={loading}
+            title="Refresh dashboard data"
+            className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-bold text-slate-700 bg-white border border-slate-200 hover:border-slate-300 shadow-xs transition-all cursor-pointer flex-shrink-0 disabled:opacity-50"
+          >
+            <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
+            <span className="hidden sm:inline">Refresh</span>
+          </motion.button>
+
+          {/* New Job */}
           <motion.button
             whileHover={{ scale: 1.02, y: -1 }}
             whileTap={{ scale: 0.98 }}
@@ -270,188 +346,203 @@ export default function MaintenanceDashboardPage() {
         </div>
       </div>
 
-      {/* Top 5 Stat Cards */}
-      <motion.div
-        variants={staggerContainer}
-        initial="hidden"
-        animate="visible"
-        className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4"
-      >
-        {/* Card 1: Active Quotes */}
+      {/* ── Stat Cards (6 cards) ─────────────────────────────────────────── */}
+      {loading && !stats ? (
+        <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 sm:gap-4">
+          {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
+        </div>
+      ) : (
         <motion.div
-          variants={staggerItem}
-          whileHover={{ scale: 1.02, y: -2 }}
-          onClick={() => navigate('/maintenance/pipeline?stage=Quotes')}
-          className="bg-white border border-slate-200 hover:border-sky-400 rounded-2xl p-4.5 flex flex-col justify-between shadow-sm transition-all cursor-pointer group"
+          variants={staggerContainer}
+          initial="hidden"
+          animate="visible"
+          className="grid grid-cols-2 lg:grid-cols-6 gap-3 sm:gap-4"
         >
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider group-hover:text-[#00204a] transition-colors">Active Quotes</p>
-              <p className="text-2xl sm:text-3xl font-black text-[#00204a] mt-1">{quotesCount}</p>
+          {/* Card 1: Active Quotes */}
+          <motion.div
+            variants={staggerItem} whileHover={{ scale: 1.02, y: -2 }}
+            onClick={() => navigate('/maintenance/pipeline?stage=Quotes')}
+            className="bg-white border border-slate-200 hover:border-sky-400 rounded-2xl p-4 flex flex-col justify-between shadow-sm transition-all cursor-pointer group"
+          >
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider group-hover:text-[#00204a] transition-colors">Active Quotes</p>
+                <p className="text-2xl sm:text-3xl font-black text-[#00204a] mt-1">{quotesCount}</p>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-sky-50 border border-sky-200 flex items-center justify-center text-sky-600 flex-shrink-0 group-hover:scale-110 transition-transform">
+                <FileText size={20} />
+              </div>
             </div>
-            <div className="w-10 h-10 rounded-xl bg-sky-50 border border-sky-200 flex items-center justify-center text-sky-600 flex-shrink-0 group-hover:scale-110 transition-transform">
-              <FileText size={20} />
-            </div>
-          </div>
-          <p className="text-xs font-bold text-sky-600 mt-2.5">↑ Pending photos/quote</p>
-        </motion.div>
+            <p className="text-[11px] font-bold text-sky-600 mt-2">↑ Pending photos/quote</p>
+          </motion.div>
 
-        {/* Card 2: Active Jobs */}
-        <motion.div
-          variants={staggerItem}
-          whileHover={{ scale: 1.02, y: -2 }}
-          onClick={() => navigate('/maintenance/pipeline?stage=Jobs')}
-          className="bg-white border border-slate-200 hover:border-blue-400 rounded-2xl p-4.5 flex flex-col justify-between shadow-sm transition-all cursor-pointer group"
-        >
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider group-hover:text-[#00204a] transition-colors">Active Jobs</p>
-              <p className="text-2xl sm:text-3xl font-black text-[#00204a] mt-1">{activeJobsCount}</p>
+          {/* Card 2: Active Jobs */}
+          <motion.div
+            variants={staggerItem} whileHover={{ scale: 1.02, y: -2 }}
+            onClick={() => navigate('/maintenance/pipeline?stage=Jobs')}
+            className="bg-white border border-slate-200 hover:border-blue-400 rounded-2xl p-4 flex flex-col justify-between shadow-sm transition-all cursor-pointer group"
+          >
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider group-hover:text-[#00204a] transition-colors">Active Jobs</p>
+                <p className="text-2xl sm:text-3xl font-black text-[#00204a] mt-1">{activeJobsCount}</p>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600 flex-shrink-0 group-hover:scale-110 transition-transform">
+                <Wrench size={20} />
+              </div>
             </div>
-            <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600 flex-shrink-0 group-hover:scale-110 transition-transform">
-              <Wrench size={20} />
-            </div>
-          </div>
-          <p className="text-xs font-bold text-blue-600 mt-2.5">↑ In progress today</p>
-        </motion.div>
+            <p className="text-[11px] font-bold text-blue-600 mt-2">↑ In progress today</p>
+          </motion.div>
 
-        {/* Card 3: Completed Jobs */}
-        <motion.div
-          variants={staggerItem}
-          whileHover={{ scale: 1.02, y: -2 }}
-          onClick={() => navigate('/maintenance/pipeline?stage=Completed Jobs')}
-          className="bg-white border border-slate-200 hover:border-emerald-400 rounded-2xl p-4.5 flex flex-col justify-between shadow-sm transition-all cursor-pointer group"
-        >
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider group-hover:text-[#00204a] transition-colors">Completed Jobs</p>
-              <p className="text-2xl sm:text-3xl font-black text-[#00204a] mt-1">{completedJobsCount}</p>
+          {/* Card 3: Completed Jobs */}
+          <motion.div
+            variants={staggerItem} whileHover={{ scale: 1.02, y: -2 }}
+            onClick={() => navigate('/maintenance/pipeline?stage=Completed Jobs')}
+            className="bg-white border border-slate-200 hover:border-emerald-400 rounded-2xl p-4 flex flex-col justify-between shadow-sm transition-all cursor-pointer group"
+          >
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider group-hover:text-[#00204a] transition-colors">Completed Jobs</p>
+                <p className="text-2xl sm:text-3xl font-black text-[#00204a] mt-1">{completedJobsCount}</p>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 flex-shrink-0 group-hover:scale-110 transition-transform">
+                <CheckCircle2 size={20} />
+              </div>
             </div>
-            <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 flex-shrink-0 group-hover:scale-110 transition-transform">
-              <CheckCircle2 size={20} />
-            </div>
-          </div>
-          <p className="text-xs font-bold text-emerald-600 mt-2.5">↑ 100% Sign-off rate</p>
-        </motion.div>
+            <p className="text-[11px] font-bold text-emerald-600 mt-2">↑ 100% sign-off rate</p>
+          </motion.div>
 
-        {/* Card 4: Jobs Waiting Booking */}
-        <motion.div
-          variants={staggerItem}
-          whileHover={{ scale: 1.02, y: -2 }}
-          onClick={() => navigate('/maintenance/pipeline?stage=Jobs Waiting Booking')}
-          className="bg-white border border-slate-200 hover:border-amber-400 rounded-2xl p-4.5 flex flex-col justify-between shadow-sm transition-all cursor-pointer group"
-        >
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider group-hover:text-[#00204a] transition-colors">Waiting Booking</p>
-              <p className="text-2xl sm:text-3xl font-black text-[#00204a] mt-1">{waitingBookingCount}</p>
+          {/* Card 4: Waiting Booking */}
+          <motion.div
+            variants={staggerItem} whileHover={{ scale: 1.02, y: -2 }}
+            onClick={() => navigate('/maintenance/pipeline?stage=Jobs Waiting Booking')}
+            className="bg-white border border-slate-200 hover:border-amber-400 rounded-2xl p-4 flex flex-col justify-between shadow-sm transition-all cursor-pointer group"
+          >
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider group-hover:text-[#00204a] transition-colors">Waiting Booking</p>
+                <p className="text-2xl sm:text-3xl font-black text-[#00204a] mt-1">{waitingBookingCount}</p>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 flex-shrink-0 group-hover:scale-110 transition-transform">
+                <Clock size={20} />
+              </div>
             </div>
-            <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 flex-shrink-0 group-hover:scale-110 transition-transform">
-              <Clock size={20} />
-            </div>
-          </div>
-          <p className="text-xs font-bold text-amber-600 mt-2.5">↓ SMS link sent to tenant</p>
-        </motion.div>
+            <p className="text-[11px] font-bold text-amber-600 mt-2">↓ SMS link sent to tenant</p>
+          </motion.div>
 
-        {/* Card 5: Staff Workload */}
-        <motion.div
-          variants={staggerItem}
-          whileHover={{ scale: 1.02, y: -2 }}
-          onClick={() => {
-            const el = document.getElementById('staff-workload-section');
-            el?.scrollIntoView({ behavior: 'smooth' });
-          }}
-          className="bg-white border border-slate-200 hover:border-purple-400 rounded-2xl p-4.5 flex flex-col justify-between shadow-sm transition-all cursor-pointer group"
-        >
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider group-hover:text-[#00204a] transition-colors">Active Technicians</p>
-              <p className="text-2xl sm:text-3xl font-black text-[#00204a] mt-1">{staffList.length}</p>
+          {/* Card 5: Active Technicians */}
+          <motion.div
+            variants={staggerItem} whileHover={{ scale: 1.02, y: -2 }}
+            onClick={() => {
+              const el = document.getElementById('staff-workload-section');
+              el?.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="bg-white border border-slate-200 hover:border-purple-400 rounded-2xl p-4 flex flex-col justify-between shadow-sm transition-all cursor-pointer group"
+          >
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider group-hover:text-[#00204a] transition-colors">Technicians</p>
+                <p className="text-2xl sm:text-3xl font-black text-[#00204a] mt-1">{staffWorkload.length}</p>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-purple-50 border border-purple-200 flex items-center justify-center text-purple-600 flex-shrink-0 group-hover:scale-110 transition-transform">
+                <Users size={20} />
+              </div>
             </div>
-            <div className="w-10 h-10 rounded-xl bg-purple-50 border border-purple-200 flex items-center justify-center text-purple-600 flex-shrink-0 group-hover:scale-110 transition-transform">
-              <Users size={20} />
-            </div>
-          </div>
-          <p className="text-xs font-bold text-purple-600 mt-2.5">↑ {staffList.length} Technicians active</p>
-        </motion.div>
-      </motion.div>
+            <p className="text-[11px] font-bold text-purple-600 mt-2">↑ {staffWorkload.length} Active technicians</p>
+          </motion.div>
 
-      {/* Middle Section: Analytics Charts (Responsive Layout) */}
+          {/* Card 6: Pending Quote Requests (NEW) */}
+          <motion.div
+            variants={staggerItem} whileHover={{ scale: 1.02, y: -2 }}
+            onClick={() => navigate('/maintenance/quote-requests')}
+            className="bg-white border border-slate-200 hover:border-rose-400 rounded-2xl p-4 flex flex-col justify-between shadow-sm transition-all cursor-pointer group"
+          >
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider group-hover:text-[#00204a] transition-colors">Quote Requests</p>
+                <p className="text-2xl sm:text-3xl font-black text-[#00204a] mt-1">{pendingQuoteRequests}</p>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-center text-rose-600 flex-shrink-0 group-hover:scale-110 transition-transform">
+                <MessageSquare size={20} />
+              </div>
+            </div>
+            <p className="text-[11px] font-bold text-rose-600 mt-2">
+              {pendingQuoteRequests > 0 ? '⚠ Awaiting resident photos' : '✓ All requests handled'}
+            </p>
+          </motion.div>
+        </motion.div>
+      )}
+
+      {/* ── Analytics Charts ────────────────────────────────────────────────── */}
       <motion.div
         variants={slideInBottom}
         initial="hidden"
         animate="visible"
         className="grid grid-cols-1 lg:grid-cols-3 gap-6"
       >
-        {/* Weekly Jobs AreaChart */}
+        {/* Weekly AreaChart */}
         <div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-sm">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
             <div>
               <h3 className="text-base font-extrabold text-[#00204a] flex items-center gap-2">
                 <TrendingUp size={18} className="text-sky-600" /> Weekly Maintenance Volume & Jobs Trend
               </h3>
-              <p className="text-xs text-slate-500 mt-0.5 font-medium">Daily incoming quotes vs scheduled & completed jobs</p>
+              <p className="text-xs text-slate-500 mt-0.5 font-medium">Daily incoming quotes vs scheduled & completed jobs (last 30 days)</p>
             </div>
             <span className="self-start sm:self-auto text-xs font-bold text-emerald-800 bg-emerald-50 px-3 py-1 rounded-lg border border-emerald-200">
               20 Jobs/Day Capacity
             </span>
           </div>
 
-          <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={weeklyJobsTrend} margin={{ top: 10, right: 10, left: -25, bottom: 15 }}>
-              <defs>
-                <linearGradient id="quotesGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#00204a" stopOpacity={0.25} />
-                  <stop offset="100%" stopColor="#00204a" stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="jobsGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#059669" stopOpacity={0.25} />
-                  <stop offset="100%" stopColor="#059669" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <XAxis dataKey="day" stroke="#64748b" fontSize={11} tickLine={false} />
-              <YAxis stroke="#64748b" fontSize={11} tickLine={false} />
-              <Tooltip
-                contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0', borderRadius: '12px', fontSize: '12px', color: '#0f172a' }}
-              />
-              <Area type="monotone" dataKey="quotes" stroke="#00204a" strokeWidth={2.5} fillOpacity={1} fill="url(#quotesGrad)" name="Quotes Received" />
-              <Area type="monotone" dataKey="completed" stroke="#059669" strokeWidth={2.5} fillOpacity={1} fill="url(#jobsGrad)" name="Completed Jobs" />
-            </AreaChart>
-          </ResponsiveContainer>
+          {loading && !stats ? <SkeletonChart height={220} /> : (
+            <ResponsiveContainer width="100%" height={220}>
+              <AreaChart data={chartTrend} margin={{ top: 10, right: 10, left: -25, bottom: 15 }}>
+                <defs>
+                  <linearGradient id="quotesGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#00204a" stopOpacity={0.25} />
+                    <stop offset="100%" stopColor="#00204a" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="jobsGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#059669" stopOpacity={0.25} />
+                    <stop offset="100%" stopColor="#059669" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="day" stroke="#64748b" fontSize={11} tickLine={false} />
+                <YAxis stroke="#64748b" fontSize={11} tickLine={false} allowDecimals={false} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0', borderRadius: '12px', fontSize: '12px', color: '#0f172a' }}
+                />
+                <Area type="monotone" dataKey="quotes"    stroke="#00204a" strokeWidth={2.5} fillOpacity={1} fill="url(#quotesGrad)" name="Quotes Received" />
+                <Area type="monotone" dataKey="completed" stroke="#059669" strokeWidth={2.5} fillOpacity={1} fill="url(#jobsGrad)"   name="Completed Jobs" />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
         </div>
 
-        {/* Maintenance Categories PieChart */}
+        {/* Category PieChart */}
         <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-sm flex flex-col justify-between">
           <div>
             <h3 className="text-base font-extrabold text-[#00204a] mb-1">Maintenance Categories</h3>
             <p className="text-xs text-slate-500 mb-3 font-medium">Job volume distribution by trade</p>
 
-            <div className="flex items-center justify-center">
-              <ResponsiveContainer width="100%" height={150}>
-                <PieChart>
-                  <Pie
-                    data={categoryBreakdown}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={40}
-                    outerRadius={65}
-                    paddingAngle={4}
-                    dataKey="value"
-                  >
-                    {categoryBreakdown.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0', borderRadius: '12px', fontSize: '12px', color: '#0f172a' }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
+            {loading && !stats ? <SkeletonChart height={150} /> : (
+              <div className="flex items-center justify-center">
+                <ResponsiveContainer width="100%" height={150}>
+                  <PieChart>
+                    <Pie data={categoryBreakdown} cx="50%" cy="50%" innerRadius={40} outerRadius={65} paddingAngle={4} dataKey="value">
+                      {categoryBreakdown.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0', borderRadius: '12px', fontSize: '12px', color: '#0f172a' }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            )}
           </div>
 
-          <div className="space-y-1.5 pt-2 border-t border-slate-100 max-h-36 overflow-y-auto pr-1 scrollbar-thin">
-            {categoryBreakdown.map((item) => (
+          <div className="space-y-1.5 pt-2 border-t border-slate-100 max-h-36 overflow-y-auto pr-1">
+            {categoryBreakdown.map(item => (
               <div key={item.name} className="flex items-center justify-between text-xs">
                 <span className="flex items-center gap-2 text-slate-700 font-medium truncate">
                   <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: item.color }} />
@@ -464,8 +555,9 @@ export default function MaintenanceDashboardPage() {
         </div>
       </motion.div>
 
-      {/* Staff Workload Distribution & Live Availability (Split View) */}
+      {/* ── Staff Workload Section ────────────────────────────────────────── */}
       <motion.div
+        id="staff-workload-section"
         variants={slideInBottom}
         initial="hidden"
         animate="visible"
@@ -474,111 +566,172 @@ export default function MaintenanceDashboardPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
           <div>
             <h3 className="text-base font-extrabold text-[#00204a] flex items-center gap-2">
-              <Users size={18} className="text-purple-600" /> Staff Workload & Availability ({staffList.length} Technicians)
+              <Users size={18} className="text-purple-600" /> Staff Workload & Availability ({staffWorkload.length} Technicians)
             </h3>
             <p className="text-xs text-slate-500 mt-0.5 font-medium">Live capacity distribution and shift availability</p>
           </div>
           <span className="text-xs font-bold text-purple-700 bg-purple-50 px-3 py-1 rounded-lg border border-purple-200 w-fit">
-            Overall Workload: {staffList.length > 0 ? Math.round((jobs.length / (staffList.length * 8)) * 100) : 0}% Allocated
+            Overall Workload: {overallWorkload}% Allocated
           </span>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
-          {/* Left Column (7 cols = ~58% width): Compact Bar Chart */}
-          <div className="lg:col-span-7 bg-slate-50 p-4 rounded-2xl border border-slate-200">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold text-slate-700">Workload Bar Graph</span>
-              <span className="text-[10px] text-slate-500 font-normal">Assigned Jobs / Staff</span>
+        {loading && !stats ? (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div className="lg:col-span-7"><SkeletonChart height={175} /></div>
+            <div className="lg:col-span-5 space-y-2.5">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="h-12 bg-slate-100 rounded-xl animate-pulse" />
+              ))}
             </div>
-
-            <ResponsiveContainer width="100%" height={175}>
-              <BarChart
-                data={staffList.map((s) => ({
-                  name: s.name.split(' ')[0],
-                  fullName: s.name,
-                  jobs: jobs.filter((j) => j.assignedStaffId === s.id).length,
-                  color: s.color || '#a855f7',
-                }))}
-                margin={{ top: 10, right: 10, left: -25, bottom: 0 }}
-              >
-                <XAxis dataKey="name" stroke="#64748b" fontSize={11} tickLine={false} />
-                <YAxis stroke="#64748b" fontSize={11} tickLine={false} allowDecimals={false} />
-                <Tooltip
-                  cursor={false}
-                  content={({ active, payload }) => {
-                    if (active && payload && payload.length) {
-                      const d = payload[0].payload;
-                      return (
-                        <div className="bg-white border border-slate-200 px-3 py-2 rounded-xl shadow-xl text-xs space-y-0.5 text-slate-800">
-                          <p className="font-bold text-slate-900">{d.fullName}</p>
-                          <p className="text-sky-700 font-semibold">{d.jobs} Active Jobs</p>
-                        </div>
-                      );
-                    }
-                    return null;
-                  }}
-                />
-                <Bar dataKey="jobs" radius={[6, 6, 0, 0]}>
-                  {staffList.map((s, index) => (
-                    <Cell key={`cell-${index}`} fill={s.color || '#a855f7'} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
           </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+            {/* Bar Chart */}
+            <div className="lg:col-span-7 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-slate-700">Workload Bar Graph</span>
+                <span className="text-[10px] text-slate-500 font-normal">Active Jobs / Staff</span>
+              </div>
 
-          {/* Right Column (5 cols = ~42% width): Live Staff Availability Status */}
-          <div className="lg:col-span-5 space-y-2.5 max-h-[220px] overflow-y-auto pr-1 scrollbar-thin">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-bold text-slate-700">Technician Availability</span>
-              <span className="text-[10px] text-slate-400 font-mono">Live Status</span>
-            </div>
-
-            {staffList.map((staff) => {
-              const assignedCount = jobs.filter((j) => j.assignedStaffId === staff.id).length;
-              const hasLeave = staff.unavailable && staff.unavailable.length > 0;
-
-              return (
-                <div
-                  key={staff.id}
-                  className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2 hover:border-slate-300 transition-all text-xs"
-                >
-                  <div className="flex items-center gap-2.5 truncate">
-                    <div
-                      className="w-7 h-7 rounded-lg flex items-center justify-center text-white font-bold text-xs flex-shrink-0 shadow-xs"
-                      style={{ backgroundColor: staff.color || '#a855f7' }}
-                    >
-                      {staff.name.charAt(0)}
-                    </div>
-                    <div className="truncate">
-                      <p className="font-bold text-slate-900 truncate leading-tight">{staff.name}</p>
-                      <p className="text-[10px] text-slate-500 truncate">{staff.role.split('&')[0]}</p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-white text-slate-700 border border-slate-200 shadow-2xs">
-                      {assignedCount} Jobs
-                    </span>
-
-                    {hasLeave ? (
-                      <span className="text-[10px] font-bold text-red-700 bg-red-50 px-2 py-0.5 rounded-full border border-red-200 flex items-center gap-1" title={staff.unavailable[0]?.reason}>
-                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" /> On Leave
-                      </span>
-                    ) : (
-                      <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Available
-                      </span>
-                    )}
-                  </div>
+              {staffBarData.length === 0 ? (
+                <div className="h-[175px] flex items-center justify-center text-xs text-slate-400">
+                  No staff data yet
                 </div>
-              );
-            })}
+              ) : (
+                <ResponsiveContainer width="100%" height={175}>
+                  <BarChart data={staffBarData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
+                    <XAxis dataKey="name" stroke="#64748b" fontSize={11} tickLine={false} />
+                    <YAxis stroke="#64748b" fontSize={11} tickLine={false} allowDecimals={false} />
+                    <Tooltip
+                      cursor={false}
+                      content={({ active, payload }) => {
+                        if (active && payload && payload.length) {
+                          const d = payload[0].payload;
+                          return (
+                            <div className="bg-white border border-slate-200 px-3 py-2 rounded-xl shadow-xl text-xs space-y-0.5 text-slate-800">
+                              <p className="font-bold text-slate-900">{d.fullName}</p>
+                              <p className="text-sky-700 font-semibold">{d.jobs} Active Jobs</p>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <Bar dataKey="jobs" radius={[6, 6, 0, 0]}>
+                      {staffBarData.map((s, index) => (
+                        <Cell key={`cell-${index}`} fill={s.color} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+
+            {/* Live Staff Availability */}
+            <div className="lg:col-span-5 space-y-2.5 max-h-[220px] overflow-y-auto pr-1">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-bold text-slate-700">Technician Availability</span>
+                <span className="text-[10px] text-slate-400 font-mono">Live Status</span>
+              </div>
+
+              {staffWorkload.length === 0 ? (
+                <div className="text-xs text-slate-400 text-center py-6">
+                  No technicians added yet
+                </div>
+              ) : staffWorkload.map(staff => {
+                const hasLeave = staff.unavailable && staff.unavailable.length > 0;
+                return (
+                  <div
+                    key={staff.id}
+                    className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2 hover:border-slate-300 transition-all text-xs"
+                  >
+                    <div className="flex items-center gap-2.5 truncate">
+                      <div
+                        className="w-7 h-7 rounded-lg flex items-center justify-center text-white font-bold text-xs flex-shrink-0 shadow-xs"
+                        style={{ backgroundColor: staff.color || '#a855f7' }}
+                      >
+                        {staff.name.charAt(0)}
+                      </div>
+                      <div className="truncate">
+                        <p className="font-bold text-slate-900 truncate leading-tight">{staff.name}</p>
+                        <p className="text-[10px] text-slate-500 truncate">{(staff.role || '').split('&')[0]}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-white text-slate-700 border border-slate-200 shadow-2xs">
+                        {staff.activeJobs} Jobs
+                      </span>
+                      {hasLeave ? (
+                        <span className="text-[10px] font-bold text-red-700 bg-red-50 px-2 py-0.5 rounded-full border border-red-200 flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" /> On Leave
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Available
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        )}
       </motion.div>
 
-      {/* Workflow Pipeline Quick Access Banner */}
+      {/* ── Recent Jobs List ─────────────────────────────────────────────── */}
+      {recentJobs.length > 0 && (
+        <motion.div
+          variants={slideInBottom}
+          initial="hidden"
+          animate="visible"
+          className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-sm"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-base font-extrabold text-[#00204a] flex items-center gap-2">
+              <Wrench size={18} className="text-blue-600" /> Recent Work Orders
+            </h3>
+            <button
+              onClick={() => navigate('/maintenance/pipeline')}
+              className="text-xs font-bold text-[#00204a] hover:text-blue-700 flex items-center gap-1 transition-colors"
+            >
+              View All <ArrowRight size={13} />
+            </button>
+          </div>
+
+          <div className="space-y-2">
+            {(search ? filteredRecentJobs : recentJobs).slice(0, 8).map(job => (
+              <div
+                key={job.id}
+                className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200 hover:border-slate-300 transition-all gap-3 cursor-pointer"
+                onClick={() => navigate('/maintenance/pipeline')}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div
+                    className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-xs flex-shrink-0"
+                    style={{ backgroundColor: job.staffColor || '#009bf2' }}
+                  >
+                    {(job.title || 'J').charAt(0).toUpperCase()}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-bold text-slate-900 text-xs truncate">{job.title}</p>
+                    <p className="text-[10px] text-slate-500 truncate">{job.tenantName} • {job.address}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${sectionBadge[job.section] || 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                    {job.section}
+                  </span>
+                  <span className="text-[10px] text-slate-400 hidden sm:inline">{timeAgo(job.createdAt)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </motion.div>
+      )}
+
+      {/* ── Workflow Pipeline Quick Access ──────────────────────────────── */}
       <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center flex-shrink-0 shadow-sm">
@@ -586,7 +739,7 @@ export default function MaintenanceDashboardPage() {
           </div>
           <div>
             <h3 className="text-base font-black text-[#00204a] flex items-center gap-2">
-              Asana Workflow Pipeline ({jobs.length} Active Work Orders)
+              Asana Workflow Pipeline ({totalJobs} Active Work Orders)
             </h3>
             <p className="text-xs text-slate-500 mt-0.5 font-medium">
               Manage quotes, booked repairs, completed history, and resident scheduling in a dedicated bounded board
@@ -604,7 +757,7 @@ export default function MaintenanceDashboardPage() {
         </button>
       </div>
 
-      {/* New Job Modal */}
+      {/* ── Create New Job Modal ─────────────────────────────────────────── */}
       <FormModal
         isOpen={newModalOpen}
         onClose={() => setNewModalOpen(false)}
@@ -617,7 +770,7 @@ export default function MaintenanceDashboardPage() {
             label="Job Title *"
             name="title"
             value={form.title}
-            onChange={(e) => setForm({ ...form, title: e.target.value })}
+            onChange={e => setForm({ ...form, title: e.target.value })}
             placeholder="e.g. Repaint Bathroom / AC Duct Swap"
           />
 
@@ -626,16 +779,15 @@ export default function MaintenanceDashboardPage() {
               label="Resident / Tenant Name *"
               name="managerName"
               value={form.managerName}
-              onChange={(e) => setForm({ ...form, managerName: e.target.value, tenantName: e.target.value })}
+              onChange={e => setForm({ ...form, managerName: e.target.value })}
               placeholder="e.g. Robert Fox / Jenny Wilson"
             />
-
             <FormField
               label="Contact Phone / Email *"
               name="contactPhone"
               value={form.contactPhone}
-              onChange={(e) => setForm({ ...form, contactPhone: e.target.value })}
-              placeholder="e.g. 0121 270 2633 / robert@example.com"
+              onChange={e => setForm({ ...form, contactPhone: e.target.value })}
+              placeholder="e.g. 0121 270 2633"
             />
           </div>
 
@@ -644,15 +796,14 @@ export default function MaintenanceDashboardPage() {
               label="Property Address / Unit Number *"
               name="address"
               value={form.address}
-              onChange={(e) => setForm({ ...form, address: e.target.value })}
-              placeholder="e.g. Apt 3110 Fabrick Square, Birmingham B12 0AF"
+              onChange={e => setForm({ ...form, address: e.target.value })}
+              placeholder="e.g. Apt 3110 Fabrick Square, B12 0AF"
             />
-
             <SelectField
-              label="Hours Required for Job *"
+              label="Hours Required *"
               name="durationHours"
               value={form.durationHours}
-              onChange={(e) => setForm({ ...form, durationHours: e.target.value })}
+              onChange={e => setForm({ ...form, durationHours: e.target.value })}
               options={[
                 { value: '0.5', label: '30 mins (0.5h)' },
                 { value: '1.0', label: '1 hour (1.0h)' },
@@ -670,25 +821,24 @@ export default function MaintenanceDashboardPage() {
               label="Assigned Technician"
               name="assignedStaffId"
               value={form.assignedStaffId}
-              onChange={(e) => setForm({ ...form, assignedStaffId: e.target.value })}
-              options={staffList.map((s) => ({ value: s.id, label: `👤 ${s.name} (${s.role.split(' ')[0]})` }))}
+              onChange={e => setForm({ ...form, assignedStaffId: e.target.value })}
+              options={staffWorkload.map(s => ({ value: s.profileId || s.id, label: `👤 ${s.name} (${(s.role || '').split(' ')[0]})` }))}
             />
-
             <SelectField
-              label="Pipeline Stage / Section"
+              label="Pipeline Stage"
               name="section"
               value={form.section}
-              onChange={(e) => setForm({ ...form, section: e.target.value })}
-              options={SECTIONS.map((s) => ({ value: s.id, label: s.label }))}
+              onChange={e => setForm({ ...form, section: e.target.value })}
+              options={SECTIONS.map(s => ({ value: s.id, label: s.label }))}
             />
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-800 mb-1">Work Description Required *</label>
+            <label className="block text-xs font-bold text-slate-800 mb-1">Work Description *</label>
             <textarea
               rows={3}
               value={form.description}
-              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              onChange={e => setForm({ ...form, description: e.target.value })}
               placeholder="Describe works required (e.g. Repaint whole property, walls, ceilings, skirting boards)..."
               className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#00204a] focus:bg-white font-medium"
             />
@@ -696,149 +846,7 @@ export default function MaintenanceDashboardPage() {
         </div>
       </FormModal>
 
-      {/* View / Manage Job Details Modal */}
-      <FormModal
-        isOpen={!!selectedJob}
-        onClose={() => setSelectedJob(null)}
-        title={selectedJob?.title || 'Work Order Details'}
-      >
-        {selectedJob && (
-          <div className="space-y-4 text-xs">
-            {/* Top Meta Bar */}
-            <div className="grid grid-cols-2 gap-3 p-3.5 rounded-2xl bg-slate-50 border border-slate-200">
-              {/* Assigned to */}
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200 flex items-center justify-center flex-shrink-0">
-                  <CheckCircle2 size={18} />
-                </div>
-                <div>
-                  <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">Assigned to</p>
-                  <p className="text-sm font-extrabold text-slate-900">
-                    {selectedJob.assignedStaffName ? selectedJob.assignedStaffName : 'Booked In'}
-                  </p>
-                </div>
-              </div>
-
-              {/* Due Date */}
-              <div className="flex items-center gap-2.5 border-l border-slate-200 pl-3">
-                <div className="w-8 h-8 rounded-full bg-sky-100 text-sky-700 border border-sky-200 flex items-center justify-center flex-shrink-0">
-                  <CalendarIcon size={16} />
-                </div>
-                <div>
-                  <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">Due date</p>
-                  <p className="text-sm font-extrabold text-slate-900">
-                    {selectedJob.scheduledDate || '15 May'}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Projects & Stage Pill */}
-            <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200">
-              <div className="flex items-center gap-2">
-                <span className="text-slate-500 font-semibold">Projects:</span>
-                <span className="px-3 py-1 rounded-lg bg-sky-100 text-sky-800 font-bold border border-sky-200 text-xs flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-sky-600" />
-                  {selectedJob.section}
-                </span>
-              </div>
-              <span className="text-[11px] text-amber-700 font-mono font-bold">⏱ {selectedJob.durationHours}h Allocated</span>
-            </div>
-
-            {/* Structured Work Order Details Block */}
-            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
-              <div className="flex items-center justify-between border-b border-slate-200 pb-2">
-                <h4 className="text-xs font-extrabold text-slate-700 uppercase tracking-wider">Work Order Description</h4>
-                <span className="text-slate-400 text-[10px]">Reference #{selectedJob.id}</span>
-              </div>
-
-              <div>
-                <p className="text-sm font-bold text-slate-900 leading-tight">
-                  {selectedJob.managerName || 'Maria'}
-                </p>
-              </div>
-
-              <div className="space-y-0.5">
-                <p className="text-slate-500 font-bold">Full Address:</p>
-                <p className="text-slate-800 font-medium leading-snug">
-                  {selectedJob.address}
-                </p>
-              </div>
-
-              <div className="space-y-0.5">
-                <p className="text-slate-500 font-bold">Contact:</p>
-                <p className="text-sky-700 font-bold">
-                  {selectedJob.contactPhone || 'Martin & Co Birmingham city (0121 270 2633)'}
-                </p>
-              </div>
-
-              <div className="space-y-1 pt-1 border-t border-slate-200">
-                <p className="text-slate-500 font-bold">Description Scope:</p>
-                <div className="p-3 rounded-xl bg-white text-slate-800 leading-relaxed text-xs border border-slate-200 font-normal whitespace-pre-line shadow-2xs">
-                  {selectedJob.description}
-                </div>
-              </div>
-            </div>
-
-            {/* Staff Calendar Allocation Dropdown at Bottom */}
-            <div className="pt-2">
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                📅 Allocate Job to Staff Calendar:
-              </label>
-              <select
-                value={selectedJob.assignedStaffId || ''}
-                onChange={(e) => handleStaffChange(selectedJob.id, e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-[#00204a] focus:bg-white"
-              >
-                <option value="">— Select Staff —</option>
-                {staffList.map((s) => (
-                  <option key={s.id} value={s.profileId || s.id}>
-                    👤 {s.name} — {s.role}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Bottom Workflow Action Buttons */}
-            <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
-              <button
-                type="button"
-                onClick={async () => {
-                  try {
-                    const linkRes = await jobService.generatePublicLink(selectedJob.id, 'QUOTE_UPLOAD');
-                    const token = linkRes.data?.secureToken || selectedJob.secureToken;
-                    const url = `${window.location.origin}/quote-upload/${token}`;
-                    navigator.clipboard.writeText(url);
-                    setToast({ message: '✓ Request link successfully generated and copied to clipboard!', type: 'success' });
-                    setTimeout(() => setToast(null), 3000);
-                  } catch (err) {
-                    setToast({ message: err.message || 'Failed to generate link.', type: 'error' });
-                    setTimeout(() => setToast(null), 3000);
-                  }
-                }}
-                className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs font-bold text-purple-900 bg-purple-100 hover:bg-purple-200 border border-purple-300 transition-all cursor-pointer flex items-center justify-center gap-1.5"
-              >
-                📷 Request Photos & Information
-              </button>
-
-              <button
-                type="button"
-                onClick={async () => {
-                  await handleSectionChange(selectedJob.id, 'Completed Quotes');
-                  setToast({ message: '✓ Job quote marked as sent! Moved to "Completed Quotes".', type: 'success' });
-                  setTimeout(() => setToast(null), 3000);
-                  setSelectedJob(null);
-                }}
-                className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-emerald-600 to-teal-500 shadow-lg hover:brightness-110 transition-all cursor-pointer flex items-center justify-center gap-1.5"
-              >
-                ✅ Quote Sent
-              </button>
-            </div>
-
-          </div>
-        )}
-      </FormModal>
-
+      {/* ── Toast ───────────────────────────────────────────────────────── */}
       <AnimatePresence>
         {toast && (
           <Toast
@@ -848,7 +856,6 @@ export default function MaintenanceDashboardPage() {
           />
         )}
       </AnimatePresence>
-
     </div>
   );
 }

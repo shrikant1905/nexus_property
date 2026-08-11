@@ -87,6 +87,7 @@ async function initDatabaseSchema() {
         \`email\` VARCHAR(191) DEFAULT NULL,
         \`address\` TEXT NOT NULL,
         \`notes\` TEXT DEFAULT NULL,
+        \`document_url\` VARCHAR(255) DEFAULT NULL,
         \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         \`updated_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX \`idx_residents_phone\` (\`phone\`),

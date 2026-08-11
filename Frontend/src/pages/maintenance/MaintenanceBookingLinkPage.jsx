@@ -45,7 +45,11 @@ export default function MaintenanceBookingLinkPage() {
         ]);
         setRequests(Array.isArray(requestsRes) ? requestsRes : requestsRes?.data || []);
         setStaffList(Array.isArray(staffRes) ? staffRes : staffRes?.data || []);
-        setTenants(Array.isArray(tenantsRes) ? tenantsRes : tenantsRes?.data || []);
+        const list = Array.isArray(tenantsRes) ? tenantsRes : tenantsRes?.data || [];
+        setTenants(list);
+        if (list.length > 0) {
+          setForm((prev) => ({ ...prev, tenantId: list[0].id }));
+        }
       } catch (err) {
         setRequests([]);
         setStaffList([]);
@@ -154,7 +158,7 @@ export default function MaintenanceBookingLinkPage() {
               name="tenantId"
               value={form.tenantId}
               onChange={(e) => setForm({ ...form, tenantId: e.target.value })}
-              options={tenants.map((t) => ({ value: t.id, label: `${t.name} — ${t.address}` }))}
+              options={tenants.map((t) => ({ value: t.id, label: `${t.full_name || t.name || 'Resident'} — ${t.address}` }))}
             />
 
             <div>

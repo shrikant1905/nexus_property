@@ -102,24 +102,27 @@ export default function MaintenanceStaffPage() {
 
     setSaving(true);
     try {
-      const payload = {
-        full_name: form.name.trim(),
-        email: form.email.trim() || undefined,
-        phone: form.phone.trim(),
-        role_title: form.role.trim() || 'Maintenance Technician',
-        color: form.color,
-        workingDays: form.workingDays,
-        startTime: form.startTime,
-        endTime: form.endTime,
-      };
+      const formData = new FormData();
+      formData.append('full_name', form.name.trim());
+      formData.append('email', form.email.trim());
+      formData.append('phone', form.phone.trim());
+      formData.append('role_title', form.role.trim() || 'Maintenance Technician');
+      formData.append('color', form.color);
+      formData.append('workingDays', JSON.stringify(form.workingDays));
+      formData.append('startTime', form.startTime);
+      formData.append('endTime', form.endTime);
+      if (avatarFile) {
+        formData.append('avatar', avatarFile);
+      }
 
       if (editingStaff) {
-        await staffService.updateStaff(editingStaff.id, payload);
+        await staffService.updateStaff(editingStaff.id, formData);
       } else {
-        await staffService.addStaff(payload);
+        await staffService.addStaff(formData);
       }
       await loadStaff();
       setModalOpen(false);
+      setAvatarFile(null);
     } catch (err) {
       alert(err.message || 'Failed to save staff member.');
     } finally {
@@ -199,12 +202,20 @@ export default function MaintenanceStaffPage() {
                 {/* Header Info */}
                 <div className="flex items-start justify-between gap-3 mb-3 pt-1">
                   <div className="flex items-center gap-3">
-                    <div
-                      className="w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xl shadow-xs flex-shrink-0"
-                      style={{ backgroundColor: `${staff.color || '#009bf2'}25`, border: `1px solid ${staff.color || '#009bf2'}40`, color: staff.color || '#009bf2' }}
-                    >
-                      {staff.name.charAt(0).toUpperCase()}
-                    </div>
+                    {staff.avatarUrl ? (
+                      <img
+                        src={staff.avatarUrl.startsWith('/uploads') ? `http://localhost:5000${staff.avatarUrl}` : staff.avatarUrl}
+                        alt={staff.name}
+                        className="w-12 h-12 rounded-2xl object-cover shadow-xs flex-shrink-0 border border-slate-200"
+                      />
+                    ) : (
+                      <div
+                        className="w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xl shadow-xs flex-shrink-0"
+                        style={{ backgroundColor: `${staff.color || '#009bf2'}25`, border: `1px solid ${staff.color || '#009bf2'}40`, color: staff.color || '#009bf2' }}
+                      >
+                        {staff.name.charAt(0).toUpperCase()}
+                      </div>
+                    )}
                     <div>
                       <div className="flex items-center gap-2">
                         <h3 className="text-base font-black text-slate-900 leading-tight">{staff.name}</h3>
@@ -340,6 +351,16 @@ export default function MaintenanceStaffPage() {
               value={form.phone}
               onChange={(e) => setForm({ ...form, phone: e.target.value })}
               placeholder="+1 (555) 000-0000"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-xs font-semibold text-slate-700">Profile Picture (File Upload)</label>
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={(e) => setAvatarFile(e.target.files[0])}
+              className="w-full text-xs border border-slate-200 rounded-xl p-2 bg-slate-50 font-bold focus:outline-none focus:border-[#00204a]"
             />
           </div>
 

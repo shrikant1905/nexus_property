@@ -52,8 +52,11 @@ export default function MaintenanceCalendarPage() {
   // Load API Data
   const loadCalendarApiData = async () => {
     try {
+      const numericStaffId = selectedStaffId && selectedStaffId !== 'ALL' 
+        ? Number(String(selectedStaffId).replace('stf-', '')) 
+        : undefined;
       const [calRes, staffRes, jobsRes] = await Promise.all([
-        calendarService.getCalendar({ staffId: selectedStaffId !== 'ALL' ? selectedStaffId : undefined }).catch(() => null),
+        calendarService.getCalendar({ staffId: numericStaffId }).catch(() => null),
         staffService.getStaff().catch(() => []),
         jobService.getJobs().catch(() => []),
       ]);
@@ -124,13 +127,20 @@ export default function MaintenanceCalendarPage() {
   // Helper to fetch all active confirmed bookings for a technician
   const getBookingsForStaff = (staffId) => {
     const list = [];
+    const numericStaffId = typeof staffId === 'string' 
+      ? Number(staffId.replace('stf-', '')) 
+      : Number(staffId);
 
     // 1. From booking requests store
     bookingRequests.forEach((req) => {
+      const reqStaffId = typeof req.bookingDetails?.staffId === 'string'
+        ? Number(req.bookingDetails.staffId.replace('stf-', ''))
+        : Number(req.bookingDetails?.staffId || req.assignedStaffId);
+
       if (
         (req.status === 'BOOKED' || req.status === 'RESCHEDULED') &&
         req.bookingDetails &&
-        (req.bookingDetails.staffId === staffId || req.assignedStaffId === staffId)
+        reqStaffId === numericStaffId
       ) {
         list.push({
           id: req.id,
@@ -141,14 +151,18 @@ export default function MaintenanceCalendarPage() {
           timeSlot: req.bookingDetails.timeSlot,
           duration: req.durationHours,
           status: req.status,
-          staffId: req.bookingDetails.staffId || req.assignedStaffId,
+          staffId: reqStaffId,
         });
       }
     });
 
     // 2. From jobs store
     jobs.forEach((j) => {
-      if (j.assignedStaffId === staffId && j.scheduledDate && j.scheduledTimeSlot) {
+      const jobStaffId = typeof j.assignedStaffId === 'string'
+        ? Number(j.assignedStaffId.replace('stf-', ''))
+        : Number(j.assignedStaffId);
+
+      if (jobStaffId === numericStaffId && j.scheduledDate && j.scheduledTimeSlot) {
         const exists = list.some((item) => item.title === j.title && item.date === j.scheduledDate);
         if (!exists) {
           list.push({
@@ -160,7 +174,7 @@ export default function MaintenanceCalendarPage() {
             timeSlot: j.scheduledTimeSlot,
             duration: j.durationHours || 1.5,
             status: 'BOOKED',
-            staffId: j.assignedStaffId,
+            staffId: jobStaffId,
           });
         }
       }
