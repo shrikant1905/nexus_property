@@ -5,10 +5,17 @@ const { pool } = require('../config/db');
 // @access  Private (JWT Required)
 const getDashboardStats = async (req, res, next) => {
   try {
+    const isStaff = req.user && req.user.role === 'MAINTENANCE_STAFF';
+    const staffId = isStaff ? (req.user.staffProfileId || -1) : null;
+    const staffFilter = isStaff ? `WHERE assigned_staff_id = ${staffId}` : '';
+    const staffFilterAnd = isStaff ? `AND assigned_staff_id = ${staffId}` : '';
+    const staffFilterWhereAnd = isStaff ? `WHERE assigned_staff_id = ${staffId} AND` : 'WHERE';
+
     // 1. Pipeline stage counts
     const [stageCounts] = await pool.query(`
       SELECT pipeline_stage AS stage, COUNT(*) AS count
       FROM work_orders
+      ${staffFilter}
       GROUP BY pipeline_stage
     `);
 
@@ -26,31 +33,54 @@ const getDashboardStats = async (req, res, next) => {
     });
 
     // 2. Staff workload — job count per staff using MySQL DATE_FORMAT for ISO date
-    const [staffRows] = await pool.query(`
-      SELECT
-        u.id            AS userId,
-        u.full_name     AS name,
-        u.phone,
-        u.email,
-        u.avatar_url    AS avatarUrl,
-        sp.id           AS profileId,
-        sp.staff_code   AS staffCode,
-        sp.role_title   AS role,
-        sp.color_hex    AS color,
-        sp.working_days_json    AS workingDays,
-        sp.work_start_time      AS workStart,
-        sp.work_end_time        AS workEnd,
-        sp.unavailable_dates_json AS unavailable,
-        COUNT(w.id)     AS activeJobs
-      FROM users u
-      LEFT JOIN staff_profiles sp ON u.id = sp.user_id
-      LEFT JOIN work_orders w
-        ON sp.id = w.assigned_staff_id
-        AND w.pipeline_stage NOT IN ('Completed Jobs', 'Completed Quotes')
-      WHERE u.role = 'MAINTENANCE_STAFF'
-      GROUP BY u.id, sp.id
-      ORDER BY u.created_at DESC
-    `);
+    const staffWorkloadQuery = isStaff 
+      ? `SELECT
+          u.id            AS userId,
+          u.full_name     AS name,
+          u.phone,
+          u.email,
+          u.avatar_url    AS avatarUrl,
+          sp.id           AS profileId,
+          sp.staff_code   AS staffCode,
+          sp.role_title   AS role,
+          sp.color_hex    AS color,
+          sp.working_days_json    AS workingDays,
+          sp.work_start_time      AS workStart,
+          sp.work_end_time        AS workEnd,
+          sp.unavailable_dates_json AS unavailable,
+          COUNT(w.id)     AS activeJobs
+        FROM users u
+        LEFT JOIN staff_profiles sp ON u.id = sp.user_id
+        LEFT JOIN work_orders w
+          ON sp.id = w.assigned_staff_id
+          AND w.pipeline_stage NOT IN ('Completed Jobs', 'Completed Quotes')
+        WHERE sp.id = ${staffId}
+        GROUP BY u.id, sp.id`
+      : `SELECT
+          u.id            AS userId,
+          u.full_name     AS name,
+          u.phone,
+          u.email,
+          u.avatar_url    AS avatarUrl,
+          sp.id           AS profileId,
+          sp.staff_code   AS staffCode,
+          sp.role_title   AS role,
+          sp.color_hex    AS color,
+          sp.working_days_json    AS workingDays,
+          sp.work_start_time      AS workStart,
+          sp.work_end_time        AS workEnd,
+          sp.unavailable_dates_json AS unavailable,
+          COUNT(w.id)     AS activeJobs
+        FROM users u
+        LEFT JOIN staff_profiles sp ON u.id = sp.user_id
+        LEFT JOIN work_orders w
+          ON sp.id = w.assigned_staff_id
+          AND w.pipeline_stage NOT IN ('Completed Jobs', 'Completed Quotes')
+        WHERE u.role = 'MAINTENANCE_STAFF'
+        GROUP BY u.id, sp.id
+        ORDER BY u.created_at DESC`;
+
+    const [staffRows] = await pool.query(staffWorkloadQuery);
 
     const staffWorkload = staffRows.map(r => ({
       id:         r.profileId ? `stf-${r.profileId}` : `usr-${r.userId}`,
@@ -78,7 +108,7 @@ const getDashboardStats = async (req, res, next) => {
         pipeline_stage                       AS stage,
         COUNT(*)                             AS count
       FROM work_orders
-      WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 29 DAY)
+      ${staffFilterWhereAnd} created_at >= DATE_SUB(CURDATE(), INTERVAL 29 DAY)
       GROUP BY DATE_FORMAT(created_at, '%Y-%m-%d'), pipeline_stage
       ORDER BY day ASC
     `);
@@ -136,6 +166,7 @@ const getDashboardStats = async (req, res, next) => {
       LEFT JOIN residents r  ON w.resident_id      = r.id
       LEFT JOIN staff_profiles sp ON w.assigned_staff_id = sp.id
       LEFT JOIN users u      ON sp.user_id          = u.id
+      ${staffFilter}
       ORDER BY w.created_at DESC
       LIMIT 20
     `);
@@ -161,12 +192,12 @@ const getDashboardStats = async (req, res, next) => {
 
     // 6. Total jobs
     const [[totalCount]] = await pool.query(
-      `SELECT COUNT(*) AS count FROM work_orders`
+      `SELECT COUNT(*) AS count FROM work_orders ${staffFilter}`
     );
 
     // 7. All-time category breakdown from all jobs
     const [allJobsRows] = await pool.query(`
-      SELECT title, description FROM work_orders
+      SELECT title, description FROM work_orders ${staffFilter}
     `);
 
     const catCounts = {

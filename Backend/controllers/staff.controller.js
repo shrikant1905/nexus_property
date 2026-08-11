@@ -1,5 +1,6 @@
 const bcrypt = require('bcryptjs');
 const { pool } = require('../config/db');
+const notificationService = require('../services/notification.service');
 
 // @desc    Get all staff members / technicians
 // @route   GET /api/v1/staff
@@ -147,7 +148,7 @@ const createStaff = async (req, res, next) => {
   try {
     await connection.beginTransaction();
 
-    const { full_name, name, email, phone, role, role_title, color, workingDays, startTime, endTime } = req.body;
+    const { full_name, name, email, phone, role, role_title, color, workingDays, startTime, endTime, password } = req.body;
 
     const staffName = (full_name || name || '').trim();
     const staffPhone = (phone || '').trim();
@@ -176,9 +177,10 @@ const createStaff = async (req, res, next) => {
       ? email.trim().toLowerCase() 
       : `tech.${Date.now()}@nexusfms.com`;
 
-    // Hash default password for new technician account
+    // Hash provided password or default for new technician account
     const salt = await bcrypt.genSalt(10);
-    const passwordHash = await bcrypt.hash('Password123!', salt);
+    const plainPassword = (password && password.trim() !== '') ? password.trim() : 'Password123!';
+    const passwordHash = await bcrypt.hash(plainPassword, salt);
 
     const avatarPath = req.file ? `/uploads/${req.file.filename}` : (req.body.avatarUrl || req.body.avatar_url || null);
 
@@ -210,15 +212,35 @@ const createStaff = async (req, res, next) => {
       [userId, staffCode, staffRoleTitle, staffColor, daysJson, startTime || '08:00:00', endTime || '17:00:00']
     );
 
+    const profileId = profileResult.insertId;
+
     await connection.commit();
     connection.release();
+
+    // Create Notification
+    try {
+      const [adminRows] = await pool.query("SELECT id FROM users WHERE role = 'OFFICE_ADMIN'");
+      for (const admin of adminRows) {
+        await notificationService.createNotification({
+          recipientUserId: admin.id,
+          type: 'NEW_STAFF',
+          title: 'New Staff Member Added',
+          message: `Technician "${staffName}" has been added to the system.`,
+          relatedEntityType: 'staff_profiles',
+          relatedEntityId: profileId,
+          actionUrl: '/admin/staff'
+        });
+      }
+    } catch (notifErr) {
+      console.error('[Notification] Failed to notify on staff creation:', notifErr);
+    }
 
     res.status(201).json({
       success: true,
       message: 'Staff member created successfully.',
       data: {
-        id: `stf-${profileResult.insertId}`,
-        profileId: profileResult.insertId,
+        id: `stf-${profileId}`,
+        profileId: profileId,
         userId: userId,
         staffCode: staffCode,
         name: staffName,
@@ -243,7 +265,7 @@ const updateStaff = async (req, res, next) => {
   try {
     const { id } = req.params;
     const cleanId = id.replace(/^(stf-|usr-)/, '');
-    const { full_name, name, phone, email, avatarUrl, avatar_url, role, role_title, color, workingDays, startTime, endTime } = req.body;
+    const { full_name, name, phone, email, avatarUrl, avatar_url, role, role_title, color, workingDays, startTime, endTime, password } = req.body;
 
     const [existing] = await connection.query(
       'SELECT sp.id as profile_id, sp.user_id FROM staff_profiles sp WHERE sp.id = ? OR sp.user_id = ?',
@@ -288,6 +310,15 @@ const updateStaff = async (req, res, next) => {
           avatar_url = CASE WHEN ? IS NOT NULL THEN NULLIF(?, '') ELSE avatar_url END
          WHERE id = ?`,
         [staffName, staffPhone, staffEmail, staffAvatar, staffAvatar, userId]
+      );
+    }
+    
+    if (password && password.trim() !== '') {
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(password.trim(), salt);
+      await connection.query(
+        'UPDATE users SET password_hash = ? WHERE id = ?',
+        [hashedPassword, userId]
       );
     }
 

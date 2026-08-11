@@ -1,5 +1,6 @@
 const { pool } = require('../config/db');
 const { calculateStaffAvailableSlots, timeToMinutes } = require('../services/availability.service');
+const notificationService = require('../services/notification.service');
 
 // Helper to resolve staff profile ID from logged in user ID
 const getStaffProfileId = async (userId) => {
@@ -335,6 +336,28 @@ const dispatchJob = async (req, res, next) => {
        WHERE w.id = ?`,
       [targetJobId]
     );
+
+    // Create Notification for the assigned staff
+    try {
+      const [staffUserRows] = await pool.query(
+        "SELECT user_id FROM staff_profiles WHERE id = ?",
+        [finalStaffId]
+      );
+      
+      if (staffUserRows.length > 0) {
+        await notificationService.createNotification({
+          recipientUserId: staffUserRows[0].user_id,
+          type: 'TASK_ASSIGNED',
+          title: 'New Task Assigned',
+          message: `You have been assigned to Work Order #${targetJobId} on ${targetDate} at ${targetSlot}.`,
+          relatedEntityType: 'work_orders',
+          relatedEntityId: parseInt(targetJobId, 10),
+          actionUrl: '/admin/calendar'
+        });
+      }
+    } catch (notifErr) {
+      console.error('[Notification] Failed to notify on job dispatch:', notifErr);
+    }
 
     res.status(200).json({
       success: true,

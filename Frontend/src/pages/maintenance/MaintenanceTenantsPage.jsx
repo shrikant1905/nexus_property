@@ -37,6 +37,7 @@ export default function MaintenanceTenantsPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingTenant, setEditingTenant] = useState(null);
   const [viewingTenant, setViewingTenant] = useState(null);
+  const [deletingTenantId, setDeletingTenantId] = useState(null);
   const [documentFile, setDocumentFile] = useState(null);
   const [form, setForm] = useState(emptyTenantForm);
 
@@ -125,14 +126,18 @@ export default function MaintenanceTenantsPage() {
     }
   };
 
-  const handleDelete = async (id) => {
-    if (window.confirm('Are you sure you want to delete this resident contact?')) {
-      try {
-        await tenantService.deleteTenant(id);
-        await loadTenants();
-      } catch (err) {
-        alert(err.message || 'Failed to delete resident.');
-      }
+  const handleDeleteClick = (id) => {
+    setDeletingTenantId(id);
+  };
+
+  const confirmDelete = async () => {
+    if (!deletingTenantId) return;
+    try {
+      await tenantService.deleteTenant(deletingTenantId);
+      await loadTenants();
+      setDeletingTenantId(null);
+    } catch (err) {
+      alert(err.message || 'Failed to delete resident.');
     }
   };
 
@@ -244,8 +249,8 @@ export default function MaintenanceTenantsPage() {
                         <Edit2 size={15} />
                       </button>
                       <button
-                        onClick={() => handleDelete(t.id)}
-                        className="p-2 rounded-lg text-red-600 hover:bg-red-50 transition-colors cursor-pointer border border-red-200"
+                        onClick={() => handleDeleteClick(t.id)}
+                        className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer border border-slate-200"
                         title="Delete Resident"
                       >
                         <Trash2 size={15} />
@@ -559,6 +564,33 @@ export default function MaintenanceTenantsPage() {
             </div>
           </div>
         )}
+      </FormModal>
+      {/* Delete Confirmation Modal */}
+      <FormModal
+        isOpen={!!deletingTenantId}
+        onClose={() => setDeletingTenantId(null)}
+        title="Confirm Deletion"
+      >
+        <div className="space-y-4">
+          <div className="flex items-center gap-3 p-4 bg-red-50 border border-red-200 text-red-800 rounded-xl">
+            <AlertCircle size={24} className="shrink-0 text-red-600" />
+            <p className="text-sm font-medium">Are you sure you want to delete this resident contact? This action cannot be undone.</p>
+          </div>
+          <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+            <button
+              onClick={() => setDeletingTenantId(null)}
+              className="px-4 py-2.5 rounded-xl text-sm font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={confirmDelete}
+              className="px-4 py-2.5 rounded-xl text-sm font-bold text-white bg-red-600 hover:bg-red-700 transition-colors shadow-md"
+            >
+              Yes, Delete Resident
+            </button>
+          </div>
+        </div>
       </FormModal>
     </div>
   );

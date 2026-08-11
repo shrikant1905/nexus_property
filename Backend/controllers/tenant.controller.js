@@ -1,4 +1,5 @@
 const { pool } = require('../config/db');
+const notificationService = require('../services/notification.service');
 
 // @desc    Get all residents / tenants (supports optional search filter)
 // @route   GET /api/v1/tenants
@@ -103,6 +104,24 @@ const createTenant = async (req, res, next) => {
       'SELECT id, full_name, phone, email, address, notes, document_url, created_at, updated_at FROM residents WHERE id = ?',
       [result.insertId]
     );
+
+    // Create Notification
+    try {
+      const [adminRows] = await pool.query("SELECT id FROM users WHERE role = 'OFFICE_ADMIN'");
+      for (const admin of adminRows) {
+        await notificationService.createNotification({
+          recipientUserId: admin.id,
+          type: 'NEW_TENANT',
+          title: 'New Resident Added',
+          message: `Resident "${residentName}" has been added to the directory.`,
+          relatedEntityType: 'residents',
+          relatedEntityId: result.insertId,
+          actionUrl: '/admin/tenants'
+        });
+      }
+    } catch (notifErr) {
+      console.error('[Notification] Failed to notify on tenant creation:', notifErr);
+    }
 
     res.status(201).json({
       success: true,

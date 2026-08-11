@@ -21,9 +21,14 @@ export default function MaintenanceCalendarPage() {
   const [bookingRequests, setBookingRequests] = useState([]);
   const [jobs, setJobs] = useState([]);
 
-  // Navigation State (Defaults to August 2026)
-  const [currentDate, setCurrentDate] = useState(new Date(2026, 7, 6)); // Default Aug 6, 2026
-  const [selectedDateStr, setSelectedDateStr] = useState('2026-08-06'); // Selected Date for Right Panel
+  // Navigation State (Defaults to Current Date)
+  const [currentDate, setCurrentDate] = useState(new Date());
+  
+  const getInitialDateStr = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+  const [selectedDateStr, setSelectedDateStr] = useState(getInitialDateStr());
 
   // Detect if logged-in user is strictly a Technician/Staff (and NOT an Office Admin)
   const isTechnician =
@@ -49,21 +54,23 @@ export default function MaintenanceCalendarPage() {
   const [selectedJob, setSelectedJob] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Load API Data
   const loadCalendarApiData = async () => {
     try {
       const numericStaffId = selectedStaffId && selectedStaffId !== 'ALL' 
         ? Number(String(selectedStaffId).replace('stf-', '')) 
         : undefined;
-      const [calRes, staffRes, jobsRes] = await Promise.all([
+      const [calRes, jobsRes] = await Promise.all([
         calendarService.getCalendar({ staffId: numericStaffId }).catch(() => null),
-        staffService.getStaff().catch(() => []),
+        // Fallback for unscheduled jobs or other UI needs, but mostly we rely on calRes for calendar
         jobService.getJobs().catch(() => []),
       ]);
-      const staffData = calRes?.staff || (Array.isArray(staffRes) ? staffRes : staffRes?.data || []);
+      const staffData = calRes?.staff || [];
+      const calendarScheduledJobs = calRes?.data || [];
       const allJobs = Array.isArray(jobsRes) ? jobsRes : jobsRes?.data || [];
+      
       setStaffList(staffData);
-      setJobs(allJobs);
+      // Use calendar specifically formatted jobs if available, otherwise fallback
+      setJobs(calendarScheduledJobs.length > 0 ? calendarScheduledJobs : allJobs);
     } catch (err) {
       setStaffList([]);
       setJobs([]);
@@ -72,6 +79,13 @@ export default function MaintenanceCalendarPage() {
 
   useEffect(() => {
     loadCalendarApiData();
+
+    // Auto-refresh every 30 seconds for real-time calendar updates
+    const interval = setInterval(() => {
+      loadCalendarApiData();
+    }, 30000);
+
+    return () => clearInterval(interval);
   }, [selectedStaffId]);
 
   const filteredStaff = isTechnician && activeStaff
@@ -112,8 +126,8 @@ export default function MaintenanceCalendarPage() {
   };
 
   const handleToday = () => {
-    setCurrentDate(new Date(2026, 7, 6)); // Reset to Aug 6, 2026
-    setSelectedDateStr('2026-08-06');
+    setCurrentDate(new Date());
+    setSelectedDateStr(getInitialDateStr());
   };
 
   const currentYear = currentDate.getFullYear();

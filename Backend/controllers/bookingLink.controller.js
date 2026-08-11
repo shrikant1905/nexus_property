@@ -80,7 +80,8 @@ const generateBookingLink = async (req, res, next) => {
 
     let staffPrefId = null;
     if (assignmentPreference && assignmentPreference !== 'ANY') {
-      staffPrefId = parseInt(assignmentPreference, 10);
+      staffPrefId = parseInt(String(assignmentPreference).replace('stf-', ''), 10);
+      if (isNaN(staffPrefId)) staffPrefId = null;
     }
 
     await connection.beginTransaction();

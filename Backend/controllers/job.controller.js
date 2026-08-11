@@ -58,7 +58,16 @@ const getJobs = async (req, res, next) => {
       queryParams.push(section.trim());
     }
 
-    if (staffId && staffId.trim() !== '' && staffId !== 'ALL') {
+    // Role-based data isolation
+    if (req.user && req.user.role === 'MAINTENANCE_STAFF') {
+      if (req.user.staffProfileId) {
+        sql += ' AND w.assigned_staff_id = ?';
+        queryParams.push(req.user.staffProfileId);
+      } else {
+        // If they have no profile yet, they shouldn't see any jobs
+        sql += ' AND w.assigned_staff_id = -1';
+      }
+    } else if (staffId && staffId.trim() !== '' && staffId !== 'ALL') {
       const cleanStaffId = staffId.replace(/^(stf-|usr-)/, '');
       sql += ' AND w.assigned_staff_id = ?';
       queryParams.push(cleanStaffId);
@@ -312,6 +321,24 @@ const createJob = async (req, res, next) => {
       }
     }
 
+    // Create Notification for new job
+    try {
+      const [adminRows] = await pool.query("SELECT id FROM users WHERE role = 'OFFICE_ADMIN'");
+      for (const admin of adminRows) {
+        await notificationService.createNotification({
+          recipientUserId: admin.id,
+          type: 'NEW_JOB',
+          title: 'New Maintenance Job Created',
+          message: `Job #${jobNumber} (${jobTitle}) has been created in ${stage}.`,
+          relatedEntityType: 'work_orders',
+          relatedEntityId: result.insertId,
+          actionUrl: '/admin/pipeline'
+        });
+      }
+    } catch (notifErr) {
+      console.error('[Notification] Failed to notify on job creation:', notifErr);
+    }
+
     res.status(201).json({
       success: true,
       message: 'Work order created successfully.',
@@ -379,6 +406,24 @@ const moveJobStage = async (req, res, next) => {
        WHERE w.id = ?`,
       [id]
     );
+
+    // Create Notification for Pipeline Update
+    try {
+      const [adminRows] = await pool.query("SELECT id FROM users WHERE role = 'OFFICE_ADMIN'");
+      for (const admin of adminRows) {
+        await notificationService.createNotification({
+          recipientUserId: admin.id,
+          type: 'PIPELINE_UPDATE',
+          title: 'Pipeline Stage Updated',
+          message: `Work Order #${id} moved to "${newStage}".`,
+          relatedEntityType: 'work_orders',
+          relatedEntityId: parseInt(id, 10),
+          actionUrl: '/admin/pipeline'
+        });
+      }
+    } catch (notifErr) {
+      console.error('[Notification] Failed to notify on pipeline update:', notifErr);
+    }
 
     res.status(200).json({
       success: true,

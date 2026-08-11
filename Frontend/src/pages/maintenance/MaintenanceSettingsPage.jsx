@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
   Building2, Phone, Mail, Clock, Calendar, Shield, Bell,
   Save, Check, Sparkles, MessageSquare, Sliders, Globe, RefreshCw, Key
 } from 'lucide-react';
 import { slideInBottom, staggerContainer, staggerItem } from '../../utils/motionVariants';
+import { settingsService } from '../../services/settingsService';
 
 export default function MaintenanceSettingsPage() {
   const [saved, setSaved] = useState(false);
@@ -24,15 +25,43 @@ export default function MaintenanceSettingsPage() {
     reminderHoursBefore: '24',
   });
 
-  const handleSave = (e) => {
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const res = await settingsService.getSettings();
+        if (res.success && res.data) {
+          setSettings(res.data);
+        }
+      } catch (err) {
+        console.error('Failed to fetch settings:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchSettings();
+  }, []);
+
+  const handleSave = async (e) => {
     e.preventDefault();
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
+    try {
+      await settingsService.updateSettings(settings);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (err) {
+      console.error('Failed to save settings:', err);
+      alert('Failed to save settings.');
+    }
   };
 
   const toggleSetting = (key) => {
     setSettings((prev) => ({ ...prev, [key]: !prev[key] }));
   };
+
+  if (loading) {
+    return <div className="p-8 text-center text-slate-500 font-medium">Loading settings...</div>;
+  }
 
   return (
     <div className="space-y-8 max-w-6xl pb-12 text-slate-800">

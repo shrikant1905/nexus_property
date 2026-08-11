@@ -24,6 +24,7 @@ export default function MaintenanceStaffPage() {
   const [form, setForm] = useState({
     name: '',
     email: '',
+    password: '',
     role: '',
     phone: '',
     workingDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
@@ -56,6 +57,7 @@ export default function MaintenanceStaffPage() {
     setForm({
       name: '',
       email: '',
+      password: '',
       role: 'Maintenance Technician',
       phone: '',
       workingDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
@@ -71,6 +73,7 @@ export default function MaintenanceStaffPage() {
     setForm({
       name: staff.name || '',
       email: staff.email || '',
+      password: '',
       role: staff.role || 'Maintenance Specialist',
       phone: staff.phone || '',
       workingDays: staff.workingDays || ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
@@ -105,6 +108,9 @@ export default function MaintenanceStaffPage() {
       const formData = new FormData();
       formData.append('full_name', form.name.trim());
       formData.append('email', form.email.trim());
+      if (form.password) {
+        formData.append('password', form.password);
+      }
       formData.append('phone', form.phone.trim());
       formData.append('role_title', form.role.trim() || 'Maintenance Technician');
       formData.append('color', form.color);
@@ -327,14 +333,24 @@ export default function MaintenanceStaffPage() {
           />
 
           {!editingStaff && (
-            <FormField
-              label="Email Address (Login Username)"
-              name="email"
-              type="email"
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
-              placeholder="technician@nexusfms.com"
-            />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <FormField
+                label="Email Address (Login Username)"
+                name="email"
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                placeholder="technician@nexusfms.com"
+              />
+              <FormField
+                label="Password"
+                name="password"
+                type="password"
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                placeholder="Leave blank to keep current"
+              />
+            </div>
           )}
 
           <div className="grid grid-cols-2 gap-3">

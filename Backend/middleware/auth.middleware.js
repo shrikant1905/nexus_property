@@ -29,6 +29,18 @@ const authenticateToken = async (req, res, next) => {
     }
 
     req.user = rows[0];
+
+    // If user is a maintenance staff, fetch their staff profile ID
+    if (req.user.role === 'MAINTENANCE_STAFF') {
+      const [profileRows] = await pool.query(
+        'SELECT id FROM staff_profiles WHERE user_id = ? LIMIT 1',
+        [req.user.id]
+      );
+      if (profileRows.length > 0) {
+        req.user.staffProfileId = profileRows[0].id;
+      }
+    }
+
     next();
   } catch (err) {
     if (err.name === 'TokenExpiredError') {

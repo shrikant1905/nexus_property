@@ -167,7 +167,7 @@ export default function MaintenanceQuoteRequestPage() {
               name="tenantId"
               value={form.tenantId}
               onChange={(e) => setForm({ ...form, tenantId: e.target.value })}
-              options={tenants.map((t) => ({ value: t.id, label: `${t.name} — ${t.address}` }))}
+              options={tenants.map((t) => ({ value: t.id, label: `${t.full_name || t.name || 'Resident'} — ${t.address}` }))}
             />
 
             <div>
@@ -410,23 +410,23 @@ export default function MaintenanceQuoteRequestPage() {
       >
         {inspectRequest && (
           <div className="space-y-4 text-xs">
-            <div className="p-3.5 rounded-xl bg-slate-900/60 border border-white/5 space-y-2">
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2 shadow-sm">
               <div className="flex items-center justify-between">
-                <span className="text-slate-400 font-medium">Work / Inspection Description:</span>
-                <span className="text-white font-bold">{inspectRequest.description}</span>
+                <span className="text-slate-500 font-medium">Work / Inspection Description:</span>
+                <span className="text-slate-800 font-bold">{inspectRequest.description}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-slate-400 font-medium">Address:</span>
-                <span className="text-slate-200">{inspectRequest.address}</span>
+                <span className="text-slate-500 font-medium">Address:</span>
+                <span className="text-slate-700">{inspectRequest.address}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-slate-400 font-medium">Current Status:</span>
+                <span className="text-slate-500 font-medium">Current Status:</span>
                 <div>{getStatusBadge(inspectRequest.status)}</div>
               </div>
               {inspectRequest.submittedAt && (
-                <div className="flex items-center justify-between text-slate-400">
+                <div className="flex items-center justify-between text-slate-500">
                   <span className="font-medium">Submitted At:</span>
-                  <span className="text-slate-300 font-mono text-[11px]">
+                  <span className="text-slate-500 font-mono text-[11px]">
                     {new Date(inspectRequest.submittedAt).toLocaleString()}
                   </span>
                 </div>
@@ -434,29 +434,31 @@ export default function MaintenanceQuoteRequestPage() {
             </div>
 
             {/* Resident Comments Provided by Resident */}
-            <div className="p-3.5 rounded-2xl bg-purple-500/10 border border-purple-500/20 space-y-1.5">
-              <p className="text-purple-300 font-bold flex items-center gap-1.5 text-xs">
+            <div className="p-3.5 rounded-2xl bg-purple-50 border border-purple-200 space-y-1.5 shadow-sm">
+              <p className="text-purple-700 font-bold flex items-center gap-1.5 text-xs">
                 <Sparkles size={14} /> Comments / Details Provided by Resident:
               </p>
-              <p className="text-slate-200 leading-relaxed bg-slate-950/40 p-3 rounded-xl border border-white/5">
-                {inspectRequest.residentComments || <span className="text-slate-500 italic">No additional comments provided by resident.</span>}
+              <p className="text-slate-700 leading-relaxed bg-white p-3 rounded-xl border border-purple-100 shadow-sm">
+                {inspectRequest.residentComments || <span className="text-slate-400 italic">No additional comments provided by resident.</span>}
               </p>
             </div>
 
             {/* Uploaded Photos Display & Gallery */}
             <div>
-              <p className="text-slate-300 font-bold mb-2 flex items-center justify-between">
+              <p className="text-slate-800 font-bold mb-2 flex items-center justify-between">
                 <span>Uploaded Photos ({inspectRequest.photos?.length || 0}):</span>
                 {inspectRequest.photos?.length > 0 && (
-                  <span className="text-[10px] text-slate-400 font-normal">Click any photo to view full size</span>
+                  <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200">
+                    Click to view full size
+                  </span>
                 )}
               </p>
 
               {!inspectRequest.photos || inspectRequest.photos.length === 0 ? (
-                <div className="p-6 rounded-xl bg-slate-900/40 border border-dashed border-white/10 text-center space-y-1 text-slate-500">
-                  <ImageIcon size={28} className="mx-auto text-slate-600" />
-                  <p className="text-xs font-semibold">No photos uploaded yet by resident.</p>
-                  <p className="text-[11px]">Resident photo upload link is pending.</p>
+                <div className="col-span-2 p-8 text-center bg-slate-50 border border-slate-200 rounded-2xl border-dashed">
+                  <ImageIcon size={32} className="mx-auto text-slate-300 mb-2" />
+                  <p className="text-slate-500 font-medium">No photos uploaded yet by resident.</p>
+                  <p className="text-slate-400 text-[11px] mt-1">Resident photo upload link is pending.</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-64 overflow-y-auto pr-1">

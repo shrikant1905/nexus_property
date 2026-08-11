@@ -21,6 +21,7 @@ export default function MaintenanceStaffProfilePage() {
     phone: '',
     email: '',
     avatarUrl: '',
+    password: '',
   });
   const [avatarFile, setAvatarFile] = useState(null);
 
@@ -51,6 +52,7 @@ export default function MaintenanceStaffProfilePage() {
         phone: staff.phone || '',
         email: staff.email || '',
         avatarUrl: staff.avatarUrl || '',
+        password: '',
       });
     }
   }, [staff]);
@@ -72,6 +74,10 @@ export default function MaintenanceStaffProfilePage() {
         formData.append('avatar', avatarFile);
       } else {
         formData.append('avatarUrl', form.avatarUrl);
+      }
+      
+      if (form.password) {
+        formData.append('password', form.password);
       }
 
       const updateRes = await staffService.updateStaff(staff.id, formData);
@@ -283,6 +289,15 @@ export default function MaintenanceStaffProfilePage() {
             value={form.email}
             onChange={(val) => setForm((prev) => ({ ...prev, email: val }))}
             placeholder="staff@nexusfms.com"
+          />
+
+          <FormField
+            label="New Password"
+            icon={ShieldCheck}
+            type="password"
+            value={form.password}
+            onChange={(val) => setForm((prev) => ({ ...prev, password: val }))}
+            placeholder="Leave blank to keep current password"
           />
 
           <div className="space-y-1.5">
