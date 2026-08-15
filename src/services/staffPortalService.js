@@ -25,4 +25,9 @@ export const staffPortalService = {
   async finalizeCompletion(jobId) {
     return apiClient.put(`/staff/jobs/${jobId}/complete`);
   },
+
+  // Cancel or reschedule a job
+  async cancelJob(jobId, formData) {
+    return apiClient.post(`/jobs/${jobId}/cancel`, formData);
+  },
 };

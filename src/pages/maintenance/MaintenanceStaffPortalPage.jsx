@@ -23,6 +23,13 @@ export default function MaintenanceStaffPortalPage() {
   const [actualHours, setActualHours] = useState('1.5');
   const [dutyStatus, setDutyStatus] = useState('AVAILABLE');
 
+  // Cancellation State
+  const [cancelJobTarget, setCancelJobTarget] = useState(null);
+  const [cancelType, setCancelType] = useState('TENANT_CANCELLED');
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelNotes, setCancelNotes] = useState('');
+  const [cancelProof, setCancelProof] = useState(null);
+
   const loadStaffPortalData = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -71,6 +78,39 @@ export default function MaintenanceStaffPortalPage() {
     } finally {
       setUploading(false);
       event.target.value = '';
+    }
+  };
+
+  const openCancelModal = (job) => {
+    setCancelJobTarget(job);
+    setCancelType('TENANT_CANCELLED');
+    setCancelReason('');
+    setCancelNotes('');
+    setCancelProof(null);
+  };
+
+  const handleCancelJob = async () => {
+    if (!cancelReason.trim()) {
+      alert('Cancellation reason is required.');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const formData = new FormData();
+      formData.append('cancellationType', cancelType);
+      formData.append('reason', cancelReason.trim());
+      if (cancelNotes) formData.append('notes', cancelNotes.trim());
+      if (cancelProof) formData.append('proof', cancelProof);
+
+      await staffPortalService.cancelJob(cancelJobTarget.id, formData);
+      alert('✓ Job cancelled/rescheduled successfully.');
+      setCancelJobTarget(null);
+      await loadStaffPortalData();
+    } catch (err) {
+      alert(`⚠️ Cancellation Failed: ${err.message}`);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -263,13 +303,22 @@ export default function MaintenanceStaffPortalPage() {
                       </td>
 
                       <td className="py-3.5 px-4 text-right">
-                        <button
-                          type="button"
-                          onClick={() => openInspectModal(job)}
-                          className="px-3 py-1.5 rounded-xl font-bold text-white text-xs bg-[#00204a] hover:bg-[#001738] transition-all cursor-pointer inline-flex items-center gap-1"
-                        >
-                          <Eye size={14} /> View & Complete
-                        </button>
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => openInspectModal(job)}
+                            className="px-3 py-1.5 rounded-xl font-bold text-white text-xs bg-[#00204a] hover:bg-[#001738] transition-all cursor-pointer inline-flex items-center gap-1"
+                          >
+                            <Eye size={14} /> View & Complete
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openCancelModal(job)}
+                            className="px-3 py-1.5 rounded-xl font-bold text-red-700 text-xs bg-red-50 hover:bg-red-100 border border-red-200 transition-all cursor-pointer inline-flex items-center gap-1"
+                          >
+                            <AlertCircle size={14} /> Reschedule / Cancel
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -427,6 +476,145 @@ export default function MaintenanceStaffPortalPage() {
                   </>
                 )}
               </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+      {/* CANCEL / RESCHEDULE MODAL */}
+      {cancelJobTarget && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5 my-8 text-slate-800"
+          >
+            <div className="flex items-start justify-between border-b border-slate-100 pb-4">
+              <div>
+                <h3 className="text-xl font-black text-red-700 mt-1 flex items-center gap-2">
+                  <AlertCircle size={20} /> Reschedule / Cancel
+                </h3>
+                <p className="text-xs text-slate-500 font-medium mt-0.5">
+                  Job #{cancelJobTarget.id} • Scheduled: {cancelJobTarget.scheduledDate || 'Pending'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCancelJobTarget(null)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center cursor-pointer transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* 48-Hour UI Check */}
+            {(() => {
+              let inside48 = false;
+              if (cancelJobTarget.scheduledDate && cancelJobTarget.scheduledTimeSlot) {
+                const parts = cancelJobTarget.scheduledTimeSlot.split('-');
+                const startTime = parts[0].trim();
+                const d = new Date(`${cancelJobTarget.scheduledDate}T${startTime}:00`);
+                if (!isNaN(d.getTime())) {
+                  const diff = d.getTime() - new Date().getTime();
+                  if (diff <= 172800000) inside48 = true; // 48 * 60 * 60 * 1000
+                }
+              }
+              return inside48 ? (
+                <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl text-sm font-bold text-center space-y-2">
+                  <p>This appointment is within the 48-hour cancellation window.</p>
+                  <p className="text-base">Please contact our office: 0121 769 1767</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-800 mb-2">Why are you cancelling?</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className={`border rounded-xl p-3 flex flex-col items-center justify-center cursor-pointer transition-colors ${cancelType === 'TENANT_CANCELLED' ? 'border-purple-600 bg-purple-50 text-purple-800' : 'border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
+                        <input type="radio" name="cancelType" value="TENANT_CANCELLED" className="hidden" checked={cancelType === 'TENANT_CANCELLED'} onChange={(e) => setCancelType(e.target.value)} />
+                        <User size={20} className="mb-1" />
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-center">Tenant Cancelled</span>
+                      </label>
+                      <label className={`border rounded-xl p-3 flex flex-col items-center justify-center cursor-pointer transition-colors ${cancelType === 'TECHNICIAN_CANCELLED' ? 'border-red-600 bg-red-50 text-red-800' : 'border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
+                        <input type="radio" name="cancelType" value="TECHNICIAN_CANCELLED" className="hidden" checked={cancelType === 'TECHNICIAN_CANCELLED'} onChange={(e) => setCancelType(e.target.value)} />
+                        <Wrench size={20} className="mb-1" />
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-center">Technician Cancelled</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-800 mb-1">Reason *</label>
+                    <input
+                      type="text"
+                      value={cancelReason}
+                      onChange={(e) => setCancelReason(e.target.value)}
+                      placeholder="e.g. Tenant not home, Vehicle broken down..."
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-red-600"
+                    />
+                  </div>
+
+                  {cancelType === 'TENANT_CANCELLED' && (
+                    <div>
+                      <label className="block text-xs font-bold text-slate-800 mb-1">Proof Upload (Optional)</label>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => setCancelProof(e.target.files[0] || null)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none"
+                      />
+                      <p className="text-[10px] text-slate-500 mt-1">Upload SMS screenshot or WhatsApp message</p>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-800 mb-1">Additional Notes (Optional)</label>
+                    <textarea
+                      rows={2}
+                      value={cancelNotes}
+                      onChange={(e) => setCancelNotes(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-red-600"
+                    />
+                  </div>
+                </div>
+              );
+            })()}
+
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => setCancelJobTarget(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+              >
+                Close
+              </button>
+
+              {(() => {
+                let inside48 = false;
+                if (cancelJobTarget.scheduledDate && cancelJobTarget.scheduledTimeSlot) {
+                  const parts = cancelJobTarget.scheduledTimeSlot.split('-');
+                  const startTime = parts[0].trim();
+                  const d = new Date(`${cancelJobTarget.scheduledDate}T${startTime}:00`);
+                  if (!isNaN(d.getTime())) {
+                    const diff = d.getTime() - new Date().getTime();
+                    if (diff <= 172800000) inside48 = true;
+                  }
+                }
+                return (
+                  <button
+                    type="button"
+                    disabled={submitting || inside48}
+                    onClick={handleCancelJob}
+                    className="px-5 py-2.5 rounded-xl font-bold text-white text-xs bg-red-600 hover:bg-red-700 shadow-md transition-all cursor-pointer flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {submitting ? (
+                      <>
+                        <Loader2 size={15} className="animate-spin" /> Submitting...
+                      </>
+                    ) : (
+                      'Submit Cancellation'
+                    )}
+                  </button>
+                );
+              })()}
             </div>
           </motion.div>
         </div>
