@@ -30,4 +30,13 @@ export const staffPortalService = {
   async cancelJob(jobId, formData) {
     return apiClient.post(`/jobs/${jobId}/cancel`, formData);
   },
+
+  // Atomic completion (Report, photos, materials)
+  async completeJobAtomic(jobId, formData) {
+    return apiClient.post(`/jobs/${jobId}/complete`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+  },
 };
